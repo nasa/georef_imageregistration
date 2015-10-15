@@ -15,7 +15,7 @@ typedef unsigned char  BINARY_MASK_DATA_TYPE;
 const unsigned short MASK_MAX = 1023; // UINT16 - This is equal to the grassfire distance!
 
 
-
+/*
 /// Constrain an OpenCV ROI to lie within an image
 /// - Returns false if there is no overlap
 bool constrainCvRoi(cv::Rect &roi, const int imageWidth, const int imageHeight)
@@ -46,7 +46,7 @@ bool constrainMatchedCvRois(cv::Rect &roi, const int imageWidth, const int image
   //std::cout << "roi2  = " << roi2<< std::endl;
   return true;
 }
-
+*/
 
 std::string itoa(const int i)
 {
@@ -54,13 +54,13 @@ std::string itoa(const int i)
   s << i;
   return s.str();
 }
-
+/*
 void affineTransform(const cv::Mat &transform, float xIn, float yIn, float &xOut, float &yOut)
 {
   xOut = xIn*transform.at<float>(0,0) + yIn*transform.at<float>(0,1) + transform.at<float>(0,2);
   yOut = xIn*transform.at<float>(1,0) + yIn*transform.at<float>(1,1) + transform.at<float>(1,2);
 }
-
+*/
 /// Single channel image interpolation
 template <typename T>
 T interpPixel(const cv::Mat& img, const cv::Mat& mask, float xF, float yF, bool &gotValue)
@@ -211,7 +211,7 @@ cv::Vec3b interpPixelMirrorRgb(const cv::Mat& img,  const cv::Mat& mask,
   return outputPixel;
 }
 
-
+/*
 /// Computes the ROI of one image in another given the transform with bounds checking.
 cv::Rect_<int> getboundsInOtherImage(const cv::Mat &imageA, const cv::Mat &imageB, const cv::Mat &transB_to_A)
 {
@@ -294,7 +294,7 @@ bool readTransform(const std::string &inputPath, cv::Mat &transform)
   }
   return true;
 }
-
+*/
 /// Try to load the image and then make sure we got valid data.
 /// - The type must by 0 (gray) or 1 (RGB)
 bool readOpenCvImage(const std::string &imagePath, cv::Mat &image, const int imageType)
@@ -311,7 +311,7 @@ bool readOpenCvImage(const std::string &imagePath, cv::Mat &image, const int ima
 
 
 
-
+/*
 /// Converts a single RGB pixel to YCbCr
 cv::Vec3b rgb2ycbcr(cv::Vec3b rgb)
 {
@@ -349,7 +349,7 @@ cv::Vec3b ycbcr2rgb(cv::Vec3b ycbcr)
   }
   return rgb;
 }
-
+*/
 
 
 
