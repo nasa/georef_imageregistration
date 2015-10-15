@@ -26,6 +26,41 @@ enum DetectorType {DETECTOR_TYPE_BRISK = 0,
                    DETECTOR_TYPE_AKAZE = 3};
 
 
+void writeOverlayImage(const cv::Mat &refImage, const cv::Mat &warpImage,
+                       const cv::Mat &transform, const std::string &outputPath)
+{
+// DEBUG - Paste the match image on top of the reference image
+  cv::Mat warpedImage, mergedImage;
+  cv::Size warpSize(refImage.rows, refImage.cols);
+  //typedef unsigned char PixelType;
+  typedef cv::Vec3b PixelType;
+  PixelType fillerPixel(0, 0, 0);
+  cv::warpPerspective(warpImage, warpedImage, transform, warpSize);//, cv::WARP_INVERSE_MAP);
+  mergedImage = refImage.clone();
+  double opacity = 0.5;
+  const int NUM_CHANNELS = 3;
+  for (int r=0; r<refImage.rows; ++r)
+  {
+    for (int c=0; c<refImage.cols; ++c)
+    {
+      PixelType newPixel;
+      PixelType refPixel  = refImage.at<PixelType>(r, c);
+      PixelType warpPixel = warpedImage.at<PixelType>(r, c);
+      
+      if (warpPixel == fillerPixel)
+        newPixel = refPixel;
+      else
+      {
+        for (int i=0; i<NUM_CHANNELS; ++i)
+          newPixel[i] = (warpPixel[i]*opacity + refPixel[i]*(1.0-opacity));
+        //newPixel = (warpPixel*opacity + refPixel*(1.0-opacity));
+      }
+      mergedImage.at<PixelType>(r, c) = newPixel;
+    }  
+  }
+  cv::imwrite(outputPath, mergedImage);
+}
+  
 void intensityStretch(const cv::Mat &inputImage, cv::Mat &outputImage)
 {
   const double LOW_PERCENTILE  = 0.02;
@@ -292,10 +327,11 @@ void preprocess(const cv::Mat &inputImage, cv::Mat &outputImage)
 
 /// Returns the number of inliers
 int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn,
-                          const cv::Mat &estimatedTransform, cv::Mat &transform,
+                          cv::Mat &transform,
                           const std::string debugFolder,
                           const int          kernelSize  =5, 
-                          const DetectorType detectorType=DETECTOR_TYPE_ORB)
+                          const DetectorType detectorType=DETECTOR_TYPE_ORB,
+                          bool debug=true)
 {
   
   // Preprocess the images to improve feature detection
@@ -303,9 +339,12 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   preprocess(refImageIn,   refImage);
   preprocess(matchImageIn, matchImage);
   
-  printf("Writing preprocessed images...\n");
-  cv::imwrite( debugFolder+"basemapProcessed.jpeg", refImage );
-  cv::imwrite( debugFolder+"geocamProcessed.jpeg", matchImage );
+  if (debug)
+  {
+    printf("Writing preprocessed images...\n");
+    cv::imwrite( debugFolder+"basemapProcessed.jpeg", refImage );
+    cv::imwrite( debugFolder+"geocamProcessed.jpeg", matchImage );
+  }
     
   std::vector<cv::KeyPoint> keypointsA, keypointsB;
   cv::Mat descriptorsA, descriptorsB;  
@@ -367,13 +406,16 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     applyRootSift(descriptorsB);
   }
   
-  cv::Mat keypointImageA, keypointImageB;
-  cv::drawKeypoints(refImageIn, keypointsA, keypointImageA,
-                    cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-  cv::drawKeypoints(matchImageIn, keypointsB, keypointImageB,
-                    cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-  cv::imwrite( debugFolder+"refKeypoints.tif", keypointImageA);
-  cv::imwrite( debugFolder+"matchKeypoints.tif", keypointImageB);
+  if (debug)
+  {
+    cv::Mat keypointImageA, keypointImageB;
+    cv::drawKeypoints(refImageIn, keypointsA, keypointImageA,
+                      cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::drawKeypoints(matchImageIn, keypointsB, keypointImageB,
+                      cv::Scalar::all(-1), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::imwrite( debugFolder+"refKeypoints.tif", keypointImageA);
+    cv::imwrite( debugFolder+"matchKeypoints.tif", keypointImageB);
+  }
   
   // Find the closest match for each feature
   //cv::FlannBasedMatcher matcher;
@@ -422,15 +464,17 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     if (dist > max_dist) 
       max_dist = dist;
   }
-
   //printf("-- Max dist : %f \n", max_dist );
   //printf("-- Min dist : %f \n", min_dist );
   
-  cv::Mat matches_image1;
-  cv::drawMatches( refImageIn, keypointsA, matchImageIn, keypointsB,
-                   seperatedMatches, matches_image1, cv::Scalar::all(-1), cv::Scalar::all(-1),
-                   std::vector<char>(),cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
-  cv::imwrite( debugFolder+"seperated_matches.tif", matches_image1 );
+  if (debug)
+  {
+    cv::Mat matches_image1;
+    cv::drawMatches(refImageIn, keypointsA, matchImageIn, keypointsB,
+                    seperatedMatches, matches_image1, cv::Scalar::all(-1), cv::Scalar::all(-1),
+                    std::vector<char>(),cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    cv::imwrite(debugFolder+"seperated_matches.tif", matches_image1);
+  }
   
   
   //-- Pick out "good" matches
@@ -470,11 +514,14 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   if (good_matches.size() < MIN_LEGAL_MATCHES)
     return 0;
 
-  cv::Mat matches_image2;
-  cv::drawMatches( refImageIn, keypointsA, matchImageIn, keypointsB,
-                   good_matches, matches_image2, cv::Scalar::all(-1), cv::Scalar::all(-1),
-                   std::vector<char>(),cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
-  cv::imwrite( debugFolder+"good_matches.tif", matches_image2 );
+  if (debug)
+  {
+    cv::Mat matches_image2;
+    cv::drawMatches(refImageIn, keypointsA, matchImageIn, keypointsB,
+                    good_matches, matches_image2, cv::Scalar::all(-1), cv::Scalar::all(-1),
+                    std::vector<char>(),cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    cv::imwrite(debugFolder+"good_matches.tif", matches_image2);
+  }
   
   // Get the coordinates from the remaining good matches  
   std::vector<cv::Point2f> refPts;
@@ -489,7 +536,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   // Compute a transform between the images using RANSAC
   const double MAX_INLIER_DIST_PIXELS = 30;
   cv::Mat inlierMask;
-  transform = cv::findHomography( refPts, matchPts, cv::RHO, MAX_INLIER_DIST_PIXELS, inlierMask );
+  transform = cv::findHomography( matchPts, refPts, cv::RHO, MAX_INLIER_DIST_PIXELS, inlierMask );
   printf("Finished computing homography.\n");
   
   if (inlierMask.rows == 0)
@@ -521,12 +568,15 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     usedPtsMatch.push_back(matchPts[inlierIndices[i]]);
   }
 
-  cv::Mat matches_image;
-  cv::drawMatches( refImageIn, keypointsA, matchImageIn, keypointsB,
-                       inlierMatches, matches_image, cv::Scalar::all(-1), cv::Scalar::all(-1),
-                       std::vector<char>(),cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS );
+  if (debug)
+  {
+    cv::Mat matches_image3;
+    cv::drawMatches(refImageIn, keypointsA, matchImageIn, keypointsB,
+                    inlierMatches, matches_image3, cv::Scalar::all(-1), cv::Scalar::all(-1),
+                    std::vector<char>(),cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
                        
-  cv::imwrite( debugFolder+"match_debug_image.tif", matches_image );
+    cv::imwrite(debugFolder+"match_debug_image.tif", matches_image3);
+  }
 
   // Return the number of inliers found
   return static_cast<int>(inlierIndices.size());
@@ -535,7 +585,8 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
 /// Calls computImageTransform with multiple parameters until one succeeds
 int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchImageIn,
                                 const std::string &debugFolder,
-                                const cv::Mat &estimatedTransform, cv::Mat &transform)
+                                cv::Mat &transform,
+                                bool debug)
 {
   // Try not to accept solutions with fewer outliers
   const int DESIRED_NUM_INLIERS  = 20;
@@ -552,8 +603,8 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
     {
       printf("Attempting transform with kernel size = %d and detector type = %d\n",
              kernelSize, detectorType);
-      numInliers = computeImageTransform(refImageIn, matchImageIn, estimatedTransform, transform, debugFolder,
-                                         kernelSize, static_cast<DetectorType>(detectorType));
+      numInliers = computeImageTransform(refImageIn, matchImageIn, transform, debugFolder,
+                                         kernelSize, static_cast<DetectorType>(detectorType), debug);
       
       
       return numInliers; // DEBUG!!!!!!!!!
@@ -586,24 +637,17 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
 int main(int argc, char** argv )
 {
   
-  if (argc < 5)
+  if (argc < 4)
   {
-    printf("usage: registerGeocamImage <Base map path> <New image path> <Output path> <Output scale> [<Estimated transform path>]\n");
+    printf("usage: registerGeocamImage <Base map path> <New image path> <Output path> [debug]\n");
     return -1;
   }
   std::string refImagePath   = argv[1];
   std::string matchImagePath = argv[2];
   std::string outputPath     = argv[3];
-  double outputScale         = atof(argv[4]);
-  
-  // Load an estimated transform if the user passed one in
-  float m[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-  cv::Mat estimatedTransform(3, 3, CV_32FC1, m);
-  if (argc == 6)
-  {
-    std::string estTransformPath = argv[5];
-    readTransform(estTransformPath, estimatedTransform);
-  }
+  bool debug = false;
+  if (argc > 4) // Set debug option
+    debug = true;
   
   // TODO: Experiment with color processing
   const int LOAD_GRAY = 0;
@@ -624,74 +668,39 @@ int main(int argc, char** argv )
     return -1;
   }
 
+  // Write any debug files to this folder
   size_t stop = outputPath.rfind("/");
   std::string debugFolder = outputPath.substr(0,stop+1);
 
   // First compute the transform between the two images
   cv::Mat transform(3, 3, CV_32FC1);
-  int numInliers = computeImageTransformRobust(refImageIn, matchImageIn, debugFolder, estimatedTransform, transform);
+  int numInliers = computeImageTransformRobust(refImageIn, matchImageIn, debugFolder, transform, debug);
   if (!numInliers)
   {
     printf("Failed to compute image transform!\n");
     return -1;
   }
   printf("Computed transform with %d inliers.\n", numInliers);
-  
-  
- 
-  // Convert the transform to apply to the higher resolution images
-  // - Also convert the transform back into the frame of the full input reference image.
-  // - Since we are only computing the translation this is easy!
-  transform.at<float>(0, 2) = transform.at<float>(0, 2) * outputScale;
-  transform.at<float>(1, 2) = transform.at<float>(1, 2) * outputScale;  
+
+  // The output transform is from the HRSC image to the base map
+  writeTransform(outputPath, transform);
+
+  if (!debug) // Only debug stuff beyond this point
+    return 0;
  
   // Print the transform
   for (int r=0; r<3; ++r)
   {
     for (int c=0; c<3; ++c)
     {
-      printf("%lf    ", transform.at<float>(r,c));
+      printf("%lf    ", transform.at<double>(r,c));
     }
     printf("\n");
   }
   
-  // The output transform is from the HRSC image to the base map
-  writeTransform(outputPath, transform);
-  
-  
   // DEBUG - Paste the match image on top of the reference image
-  cv::Mat warpedImage, mergedImage;
-  cv::Size warpSize(refImageIn.rows, refImageIn.cols);
-  //typedef unsigned char PixelType;
-  typedef cv::Vec3b PixelType;
-  PixelType fillerPixel(0, 0, 0);
-  cv::warpPerspective(matchImageIn, warpedImage, transform, warpSize, cv::WARP_INVERSE_MAP);
-  mergedImage = refImageIn.clone();
-  double opacity = 0.5;
-  const int NUM_CHANNELS = 3;
-  for (int r=0; r<refImageIn.rows; ++r)
-  {
-    for (int c=0; c<refImageIn.cols; ++c)
-    {
-      PixelType newPixel;
-      PixelType refPixel  = refImageIn.at<PixelType>(r, c);
-      PixelType warpPixel = warpedImage.at<PixelType>(r, c);
-      
-      if (warpPixel == fillerPixel)
-        newPixel = refPixel;
-      else
-      {
-        for (int i=0; i<NUM_CHANNELS; ++i)
-          newPixel[i] = (warpPixel[i]*opacity + refPixel[i]*(1.0-opacity));
-        //newPixel = (warpPixel*opacity + refPixel*(1.0-opacity));
-      }
-      
-      mergedImage.at<PixelType>(r, c) = newPixel;
-    }  
-  }
+  writeOverlayImage(refImageIn, matchImageIn, transform, debugFolder+"warped.tif");
   
-  
-  cv::imwrite(debugFolder+"warped.tif", mergedImage);
   
   return 0;
 }
