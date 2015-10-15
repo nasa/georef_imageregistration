@@ -21,9 +21,9 @@ import geocamTiePoint.transform
 # Supporting functions
 
 # These codes are used to define the confidence in the detected image registration
-NO_CONFIDENCE   = 0
-LOW_CONFIDENCE  = 1
-HIGH_CONFIDENCE = 2
+CONFIDENCE_NONE = 0
+CONFIDENCE_LOW  = 1
+CONFIDENCE_HIGH = 2
 
 def convertTransformToGeo(transform, newImagePath, refImagePath):
     '''Converts an image-to-image homography to the ProjectiveTransform
@@ -111,16 +111,20 @@ def alignImages(testImagePath, refImagePath, workPrefix, force):
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
     
-    # Load the computed transform
+    # Load the computed transform and confidence
     handle   = open(transformPath, 'r')
     fileText = handle.read()
     handle.close()
     lines = fileText.split('\n')
+    confidence = CONFIDENCE_NONE
+    if 'CONFIDENCE_LOW' in lines[0]:
+        confidence = CONFIDENCE_LOW
+    if 'CONFIDENCE_HIGH' in lines[0]:
+        confidence = CONFIDENCE_HIGH
     transform = [float(f) for f in lines[1].split(',')] +  \
                 [float(f) for f in lines[2].split(',')] +  \
                 [float(f) for f in lines[3].split(',')]
-
-    confidence = LOW_CONFIDENCE # TODO: Compute this!
+    
     return (transform, confidence)
 
 

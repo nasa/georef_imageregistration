@@ -125,6 +125,8 @@ def runTest(test, options):
     force = not options.useExisting
     (transform, confidence) = register_image.alignImages(testImagePath, refImagePath, workPrefix, force)
 
+    print 'Got confidence level: ' + str(confidence)
+
     # TODO: First generate the ideal transform for every data set!
 
     if not os.path.exists(idealTransformPath):
