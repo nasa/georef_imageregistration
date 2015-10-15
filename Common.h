@@ -257,9 +257,9 @@ bool writeTransform(const std::string &outputPath, const cv::Mat &transform)
   {
     for (size_t c=0; c<transform.cols-1; ++c)
     {
-      file << transform.at<float>(r,c) << ", ";
+      file << transform.at<double>(r,c) << ", ";
     }
-    file << transform.at<float>(r,transform.cols-1) << std::endl;
+    file << transform.at<double>(r,transform.cols-1) << std::endl;
   }
   file.close();
   

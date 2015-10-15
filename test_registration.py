@@ -5,8 +5,18 @@ import sys
 import argparse
 import subprocess
 import traceback
+import numpy
 
+import ImageFetcher.miscUtilities
 import ImageFetcher.fetchReferenceImage
+import register_image
+import IrgStringFunctions, IrgGeoFunctions
+
+# TODO: Make sure this gets found!
+basepath    = os.path.abspath(sys.path[0])
+pythonpath  = os.path.abspath(basepath + '/../geocamTiePoint/geocamTiePoint')
+sys.path.insert(0, pythonpath)
+import geocamTiePoint.transform
 
 
 class TestInstance:
@@ -67,63 +77,6 @@ def readTestInfo():
     return testData
 
 
-def estimateGroundResolution(focalLength):
-    '''Estimates a ground resolution in meters per pixel'''
-    
-    if not focalLength: # Guess a low resolution for a zoomed out image
-        return 150
-    
-    # Based on all the focal lengths we have seen so far
-    if focalLength <= 50:
-        return 200
-    if focalLength <= 110:
-        return 80
-    if focalLength <= 180:
-        return 55
-    if focalLength <= 250:
-        return 30
-    if focalLength <= 340:
-        return 25
-    if focalLength <= 400:
-        return 20
-    if focalLength <= 800:
-        return 10
-    return 0
-
-    # TODO: Log other focal lengths!
-
-
-
-def fetchReferenceImage(test, outputPath):
-    '''Download the image which will be used to match the test image.
-       Returns the percentage of valid pixels in the image.'''
-    
-    lon = test.imageCenterLoc[0]
-    lat = test.imageCenterLoc[1]
-    if test.date:
-        date = test.date
-    else: # Just pick a date
-        date = '2002.06.01'
-    estimatedMpp = estimateGroundResolution(test.focalLength)
-    
-    return ImageFetcher.fetchReferenceImage.fetchReferenceImage(lon, lat, estimatedMpp, date, outputPath)
-
-
-def alignImages(testImagePath, refImagePath, workPrefix):
-    '''Call the C++ code to find the image alignment'''
-    
-    transformPath = workPrefix + '-transform.txt'
-    
-    scale = '1.0' # TODO: Maybe delete this
-    cmd = ['build/registerGeocamImage', refImagePath, testImagePath, transformPath, scale]
-    print cmd
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    textOutput, err = p.communicate()
-    
-    # TODO: What to do with the output here?
-    
-    return [1, 0, 0, 0, 1, 0, 0, 0, 1]
-
 
 def computeTransformDiff(idealTransform, transform):
     '''Compute a similarity measure between the computed
@@ -134,6 +87,7 @@ def computeTransformDiff(idealTransform, transform):
         diff += (idealTransform[i] - transform[i])**2
     return sqrt(diff)
 
+   
 
 def runTest(test, options):
     '''Performs a test registration on a single image'''
@@ -152,24 +106,24 @@ def runTest(test, options):
     if not os.path.exists(workFolder):
         os.mkdir(workFolder)
     
-    # TODO: How can we estimate the scale we need?
-
     # Make sure we have the image to match to
     if not os.path.exists(refImagePath) or options.reloadRefs:
         print 'Fetching reference image for input ' + testImagePath
-        fetchReferenceImage(test, refImagePath)
+            
+        estimatedMpp = register_image.estimateGroundResolution(test.focalLength)
+        return ImageFetcher.fetchReferenceImage.fetchReferenceImage(test.imageCenterLoc[0], test.imageCenterLoc[1],
+                                                                    estimatedMpp, test.date, refImagePath)
+
 
     #print 'Skipping image processing!'
     #return 0 # DEBUG skip processing, just fetch the images!
 
     #raise Exception('DEBUG')
 
+    # TODO: Don't care about the tranform path!
     transformPath = workPrefix + '-transform.txt'
-    if (not os.path.exists(transformPath)) or (not options.useExisting):
-        alignImages(testImagePath, refImagePath, workPrefix)
-    else: # Just use stats for the existing transforms!
-        print 'Using existing outputs...'
-        pass # TODO
+    force = not options.useExisting
+    (transform, confidence) = register_image.alignImages(testImagePath, refImagePath, workPrefix, force)
 
     # TODO: First generate the ideal transform for every data set!
 
@@ -178,6 +132,9 @@ def runTest(test, options):
         diff = 999
     else:
         diff = computeTransformDiff(idealTransform, transformPath)
+
+    # Test geo conversion
+    geoTransform = register_image.convertTransformToGeo(transform, testImagePath, refImagePath)
 
     return diff
 
@@ -215,7 +172,7 @@ def main():
         
         print i.imagePath + ' ---> ' + str(score)
 
-        #raise Exception('DEBUG')
+        raise Exception('DEBUG')
     
     print '===================== Finished running tests ====================='
 

@@ -26,11 +26,6 @@ import tempfile
 import zipfile
 import urllib2
 
-# Location of the sensor config files
-SENSOR_FILE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../config/sensors')
-
-TEMP_FILE_DIR = tempfile.gettempdir()
-
 def safe_get_info(ee_object, max_num_attempts=None):
     '''Keep trying to call getInfo() on an Earth Engine object until it succeeds.'''
     num_attempts = 0
@@ -271,5 +266,30 @@ def downloadEeImage(eeObject, bbox, scale, file_path, vis_params=None):
     print 'Finished saving ' + file_path
     return True
     
+#################################################################################
+# -- These functions are copied from the NGT Tools repo!    
+
+import subprocess
+
+def getImageSize(imagePath):
+    """Returns the size [samples, lines] in an image"""
+
+    # Make sure the input file exists
+    if not os.path.exists(imagePath):
+        raise Exception('Image file ' + imagePath + ' not found!')
+       
+    # Use subprocess to suppress the command output
+    cmd = ['gdalinfo', imagePath]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+
+    # Extract the size from the text
+    sizePos    = textOutput.find('Size is')
+    endPos     = textOutput.find('\n', sizePos+7)
+    sizeStr    = textOutput[sizePos+7:endPos]
+    sizeStrs   = sizeStr.strip().split(',')
+    numSamples = int(sizeStrs[0])
+    numLines   = int(sizeStrs[1])
     
-    
+    size = [numSamples, numLines]
+    return size
