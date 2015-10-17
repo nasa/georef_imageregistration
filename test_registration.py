@@ -102,7 +102,7 @@ def runTest(test, options):
     refImagePath = imageBase + '/ref_image.tif'
     workFolder   = imageBase + '/'
     workPrefix   = imageBase + '/' + options.testPrefix
-    idealTransformPath = workFolder + 'ideal_transform.txt'
+    idealTransformPath = workFolder + 'truth-transform.txt'
     if not os.path.exists(workFolder):
         os.mkdir(workFolder)
     
@@ -124,21 +124,23 @@ def runTest(test, options):
     transformPath = workPrefix + '-transform.txt'
     force = not options.useExisting
     (transform, confidence) = register_image.alignImages(testImagePath, refImagePath, workPrefix, force)
-
-    print 'Got confidence level: ' + str(confidence)
+    if confidence == register_image.CONFIDENCE_NONE:
+        raise Exception('Failed to register image!')
 
     # TODO: First generate the ideal transform for every data set!
 
     if not os.path.exists(idealTransformPath):
-        print 'TODO: Set up the ideal transform file!'
-        diff = 999
+        #print 'TODO: Set up the ideal transform file!'
+        diff = -1
     else:
-        diff = computeTransformDiff(idealTransform, transformPath)
+        # TODO: Load the ideal transform!
+        diff = 999
+        #diff = computeTransformDiff(idealTransform, transformPath)
 
     # Test geo conversion
     geoTransform = register_image.convertTransformToGeo(transform, testImagePath, refImagePath)
 
-    return diff
+    return diff, confidence
 
 def main():
 
@@ -162,19 +164,24 @@ def main():
 
     print '===================== Started running tests ====================='
 
+    confidenceCounts = [0, 0, 0]
     results = []
     for i in testInfo:
         try:
-            score = runTest(i, options)
+            score, confidence = runTest(i, options)
         except Exception, e:
-            score = 0
-            print 'Failed to process image ' + i.imagePath
-            print(traceback.format_exc())
+            score      = 0
+            confidence = register_image.CONFIDENCE_NONE
+            #print 'Failed to process image ' + i.imagePath
+            #print(traceback.format_exc())
         results.append(score)
         
-        print i.imagePath + ' ---> ' + str(score)
+        confidenceCounts[confidence] += 1
+        print i.imagePath + ' ---> ' + str(score) + ' == ' + register_image.CONFIDENCE_STRINGS[confidence]
 
-        raise Exception('DEBUG')
+        #raise Exception('DEBUG')
+    
+    print 'Confidence counts: ' + str(confidenceCounts)
     
     print '===================== Finished running tests ====================='
 

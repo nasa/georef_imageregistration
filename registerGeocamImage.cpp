@@ -37,7 +37,7 @@ bool writeOutput(const std::string &outputPath, const cv::Mat &transform,
     }
     file << transform.at<double>(r,transform.cols-1) << std::endl;
     if (print)
-      printf("\n");
+        printf("%lf\n", transform.at<double>(r,transform.cols-1));
   }
   file.close();
   
@@ -88,6 +88,75 @@ void preprocess(const cv::Mat &inputImage, cv::Mat &outputImage)
   
 }
 
+
+/// Compute an affine transform for N points, no outlier handling.
+cv::Mat getAffineTransformOverdetermined( const std::vector<cv::Point2f> &src,
+                                          const std::vector<cv::Point2f> &dst)
+{
+  // TODO: Replace this C style code
+  size_t n = src.size();
+  cv::Mat M(2, 3, CV_64F), X(6, 1, CV_64F, M.data); // output
+  double* a = (double*)malloc(12*n*sizeof(double));
+  double* b = (double*)malloc(2*n*sizeof(double));
+  cv::Mat A(2*n, 6, CV_64F, a), B(2*n, 1, CV_64F, b); // input
+
+  for( int i = 0; i < n; i++ )
+  {
+    int j = i*12;   // 2 equations (in x, y) with 6 members: skip 12 elements
+    int k = i*12+6; // second equation: skip extra 6 elements
+    a[j] = a[k+3] = src[i].x;
+    a[j+1] = a[k+4] = src[i].y;
+    a[j+2] = a[k+5] = 1;
+    a[j+3] = a[j+4] = a[j+5] = 0;
+    a[k] = a[k+1] = a[k+2] = 0;
+    b[i*2] = dst[i].x;
+    b[i*2+1] = dst[i].y;
+  }
+  cv::solve( A, B, X, cv::DECOMP_SVD );
+  delete a;
+  delete b;
+  return M;
+}
+
+
+/// See how well all the final points fit into an affine transform
+void affineInlierPrune(std::vector<cv::Point2f> &ptsA, std::vector<cv::Point2f> &ptsB)
+{
+  // Eliminate at most this many points
+  const size_t MAX_PRUNING = 10;
+    
+  size_t numPoints = ptsA.size();
+  size_t numPointsRemoved = 0;
+  double currentError = 0;
+  while (numPointsRemoved < MAX_PRUNING)
+  {
+    // Compute an affine transform using all the points
+    //cv::Mat affineTransform = cv::getAffineTransform(ptsA, ptsB);
+    cv::Mat affineTransform = getAffineTransformOverdetermined(ptsA, ptsB);
+    
+    // Apply the transform to the points
+    std::vector<cv::Point2f> warpedPtsA;
+    cv::transform(ptsA, warpedPtsA, affineTransform);
+    
+    // Compute the per-point error
+    std::vector<double> error(warpedPtsA.size());
+    double maxError = 0;
+    size_t maxErrorIndex = 0;
+    for (size_t i=0; i<warpedPtsA.size(); ++i)
+    {
+      error[i] = sqrt( pow((ptsB[i].x - warpedPtsA[i].x), 2.0) +
+                       pow((ptsB[i].y - warpedPtsA[i].y), 2.0) );
+      if (error[i] > maxError)
+      {
+        maxError      = error[i];
+        maxErrorIndex = i;
+      }
+    }
+    printf("Computed max error %lf at index %d\n", maxError, maxErrorIndex);
+    std::cout << ptsB[maxErrorIndex] << std::endl;
+    break; // TODO: Do something with this information!
+  }
+}
 
 
 /// Returns the number of inliers
@@ -144,7 +213,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     //int   descriptorType     = cv::AKAZE::DESCRIPTOR_KAZE;
     int   descriptorSize     = 0; // Max
     int   descriptorChannels = 3;
-    float threshold          = 0.003f; // Controls number of points found
+    float threshold          = 0.0015f; // Controls number of points found
     int   numOctaves         = 8;
     int   numOctaveLayers    = 5; // Num sublevels per octave
     detector  = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
@@ -162,6 +231,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     std::cout << "Failed to find any features in an image!\n";
     return 0;
   }
+  printf("Detected %d and %d keypoints\n", keypointsA.size(), keypointsB.size());
 
   // TODO: Does not seem to make a difference...
   //if ( (detectorType == DETECTOR_TYPE_SIFT) || (detectorType == DETECTOR_TYPE_AKAZE))
@@ -190,14 +260,20 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   else // Hamming distance is used for binary descriptors
     matcher = cv::DescriptorMatcher::create("BruteForce-Hamming");
   std::vector<std::vector<cv::DMatch> > matches;
-  matcher->knnMatch(descriptorsA, descriptorsB, matches, 2);
+  const size_t N_BEST_MATCHES = 2;
+  matcher->knnMatch(descriptorsA, descriptorsB, matches, N_BEST_MATCHES);
   printf("Initial matching finds %d matches.\n", matches.size());
   
-  const float SEPERATION_RATIO = 0.8; // Min seperation between top two matches
+  const float  SEPERATION_RATIO = 0.8; // Min seperation between top two matches
   std::vector<cv::DMatch> seperatedMatches;
-  seperatedMatches.reserve(matches.size());
+  seperatedMatches.reserve(matches.size());// * N_BEST_MATCHES);
   for (int i = 0; i < matches.size(); ++i)
   {
+    //// Accept multiple matches for each feature
+    //for (size_t j=0; j<N_BEST_MATCHES; ++j)
+    //  seperatedMatches.push_back(matches[i][j]);
+      
+    // Only accept matches which stand out
     if (matches[i][0].distance < SEPERATION_RATIO * matches[i][1].distance)
     {
       seperatedMatches.push_back(matches[i][0]);
@@ -209,12 +285,11 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   if (seperatedMatches.size() < MIN_LEGAL_MATCHES)
     return 0;
 
-  // TODO: If this ever works, try to use it!
-  printf("Attempting to compute aligning image rotation...\n");
-  double calcRotation=0;
-  if (!estimateImageRotation(keypointsA, keypointsB, seperatedMatches, calcRotation))
-    printf("Failed to compute a rotation alignment between the images!\n"); 
-
+  //// TODO: If this ever works, try to use it!
+  //printf("Attempting to compute aligning image rotation...\n");
+  //double calcRotation=0;
+  //if (!estimateImageRotation(keypointsA, keypointsB, seperatedMatches, calcRotation))
+  //  printf("Failed to compute a rotation alignment between the images!\n"); 
   
   //-- Quick calculation of max and min distances between keypoints
   double max_dist = 0; double min_dist = 9999999;
@@ -246,7 +321,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   float goodDist = max_dist;//(min_dist + max_dist) / 2.0;
   //if (argc > 3)
   //  goodDist = atof(argv[3]);
-  const size_t DUPLICATE_CUTOFF = 2;
+  const size_t DUPLICATE_CUTOFF = 3;
   std::vector< cv::DMatch > good_matches;
   for (int i=0; i<seperatedMatches.size(); i++)
   { 
@@ -273,8 +348,10 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     // Now check the distance
     if (seperatedMatches[i].distance <= goodDist)
       good_matches.push_back( seperatedMatches[i]);
+    
+    //good_matches.push_back( seperatedMatches[i]);
   }
-  printf("After score filtering have %u out of %u points remaining\n",
+  printf("After additional filtering have %u out of %u points remaining\n",
          good_matches.size(), seperatedMatches.size());
   if (good_matches.size() < MIN_LEGAL_MATCHES)
     return 0;
@@ -299,10 +376,34 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   printf("Computing homography...\n");
   
   // Compute a transform between the images using RANSAC
-  const double MAX_INLIER_DIST_PIXELS = 30;
+  // - Start with a small error acceptance threshold, but increase it if we don't find a solution.
+  const int MIN_INLIER_DIST_PIXELS = 5;
+  const int MAX_INLIER_DIST_PIXELS = 20;
+  const int INC_INLIER_DIST_PIXELS = 3;
   cv::Mat inlierMask;
-  transform = cv::findHomography( matchPts, refPts, cv::RHO, MAX_INLIER_DIST_PIXELS, inlierMask );
+  size_t numInliers = 0;
+  for (int d=MIN_INLIER_DIST_PIXELS; d<MAX_INLIER_DIST_PIXELS; d+=INC_INLIER_DIST_PIXELS)
+  {
+    numInliers = 0;
+    printf("Searching for homography with inlier distance = %d\n", d);
+    transform = cv::findHomography( matchPts, refPts, cv::RHO, d, inlierMask );
+    if (inlierMask.rows == 0)
+      continue; // Special case for no inliers!
+    for (size_t i=0; i<refPts.size(); ++i)
+    {  // Count the number of inliers
+      if (inlierMask.at<unsigned char>(i, 0) > 0)
+        ++numInliers;
+    }
+    // Stop increasing the match distance when we get the minimum legal number of inliers
+    if (numInliers > MIN_LEGAL_MATCHES)
+      break;
+  }
   printf("Finished computing homography.\n");
+  
+  // TODO: Use some sort of affine based check to throw out bad points?
+  //       Often, but not always, an affine based transform works ok.
+  //       This would help alleviate cases where one bad match messes up
+  //       an otherwise good transform.
   
   if (inlierMask.rows == 0)
   {
@@ -313,9 +414,10 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   // Convert from OpenCV inlier mask to vector of inlier indices
   std::vector<size_t    > inlierIndices;
   std::vector<cv::DMatch> inlierMatches;
-  inlierMatches.reserve(refPts.size());
-  inlierIndices.reserve(refPts.size());
-  for (size_t i=0; i<refPts.size(); ++i) {
+  inlierMatches.reserve(numInliers);
+  inlierIndices.reserve(numInliers);
+  for (size_t i=0; i<refPts.size(); ++i)
+  {
     if (inlierMask.at<unsigned char>(i, 0) > 0)
     {
       inlierIndices.push_back(i);
@@ -333,6 +435,8 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     usedPtsMatch.push_back(matchPts[inlierIndices[i]]);
   }
 
+  affineInlierPrune(usedPtsMatch, usedPtsRef);
+  
   if (debug)
   {
     cv::Mat matches_image3;
@@ -344,7 +448,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   }
 
   // Return the number of inliers found
-  return static_cast<int>(inlierIndices.size());
+  return static_cast<int>(numInliers);
 }
 
 /// Calls computImageTransform with multiple parameters until one succeeds
@@ -364,7 +468,7 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
   //   match as determined by the inlier count
   for (int kernelSize=5; kernelSize<6; kernelSize += 20)
   {
-    for (int detectorType=3; detectorType<4; detectorType+=10)
+    for (int detectorType=2; detectorType<4; detectorType+=10)
     {
       printf("Attempting transform with kernel size = %d and detector type = %d\n",
              kernelSize, detectorType);
