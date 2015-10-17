@@ -60,14 +60,14 @@ def convertTransformToGeo(transform, newImagePath, refImagePath, refImageGeoTran
         for c in range(0, newImageSize[1], pointPixelSpacing):
             thisPixel = numpy.array([float(c), float(r)])
             pixelInRefImage = imageToRefTransform.forward(thisPixel)
-            homogPixel = numpy.array(list(pixelInRefImage) + [1], dtype='float64') # Homogenize the input point
-            
+
             if (not refImageGeoTransform):
-                # Use the geo information of the 
+                # Use the geo information of the reference image
+                homogPixel = numpy.array(list(pixelInRefImage) + [1], dtype='float64') # Homogenize the input point
                 gdcCoordinate   = refPixelToGdcTransform.dot(homogPixel)[0:2]
                 projectedCoordinate = geocamTiePoint.transform.lonLatToMeters(gdcCoordinate)
             else: # Use the user-provided transform
-                projectedCoordinate = refImageGeoTransform.forward(homogPixel)
+                projectedCoordinate = refImageGeoTransform.forward(pixelInRefImage)
                 
             imagePoints.append(thisPixel)
             worldPoints.append(projectedCoordinate)
@@ -109,7 +109,7 @@ def estimateGroundResolution(focalLength):
     return 0
 
 
-def alignImages(testImagePath, refImagePath, workPrefix, force):
+def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
     '''Call the C++ code to find the image alignment'''
     
     transformPath = workPrefix + '-transform.txt'
@@ -118,7 +118,9 @@ def alignImages(testImagePath, refImagePath, workPrefix, force):
     if (not os.path.exists(transformPath) or force):
         if os.path.exists(transformPath):
             os.remove(transformPath) # Clear out any old results
-        cmd = ['build/registerGeocamImage', refImagePath, testImagePath, transformPath, '--debug']
+        cmd = ['build/registerGeocamImage', refImagePath, testImagePath, transformPath]
+        if debug:
+            cmd.append('--debug')
         #print cmd
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
@@ -156,26 +158,39 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
        Returns a transform from image coordinates to projected meters coordinates.
        Also returns an evaluation of how likely the registration is to be correct.'''
 
+    debug = False
+
     # Set up paths in a temporary directory
-    workDir = tempfile.mkdtemp()
-    workPrefix = workDir + '/work-'
+    if not debug:
+        workDir = tempfile.mkdtemp()
+    else:
+        workDir = os.path.splitext(imagePath)[0]
+    if not os.path.exists(workDir):
+        os.mkdir(workDir)
+    workPrefix = workDir + '/work'
     
-    if not referenceImage:
+    #print workDir
+    
+    if not refImagePath:
         # Fetch the reference image
         estimatedMpp = estimateGroundResolution(focalLength)
         refImagePath = os.path.join(workDir, 'ref_image.tif')
-        ImageFetcher.fetchReferenceImage.fetchReferenceImage(centerLon, centerLat,
-                                                             estimatedMpp, imageDate, refImagePath)
+        if not os.path.exists(refImagePath):
+            ImageFetcher.fetchReferenceImage.fetchReferenceImage(centerLon, centerLat,
+                                                                 estimatedMpp, imageDate, refImagePath)
     else: # The user provided a reference image
         if not os.path.exists(refImagePath):
             raise Exception('Provided reference image path does not exist!')
 
     # Try to align to the reference image
-    force = True
-    (transform, confidence) = alignImages(imagePath, refImagePath, workPrefix, force)
+    force = False
+    (transform, confidence) = alignImages(imagePath, refImagePath, workPrefix, force, debug)
+
+    if (confidence == CONFIDENCE_NONE):
+        raise Exception('Failed to compute tranform!')
 
     # Convert the transform into a pixel-->Projected coordinate transform
-    geoTransform = register_image.convertTransformToGeo(transform, testImagePath, refImagePath, referenceGeoTransform)
+    geoTransform = convertTransformToGeo(transform, imagePath, refImagePath, referenceGeoTransform)
 
     return (geoTransform, confidence)
 
