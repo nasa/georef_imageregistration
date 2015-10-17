@@ -111,8 +111,8 @@ def runTest(test, options):
         print 'Fetching reference image for input ' + testImagePath
             
         estimatedMpp = register_image.estimateGroundResolution(test.focalLength)
-        return ImageFetcher.fetchReferenceImage.fetchReferenceImage(test.imageCenterLoc[0], test.imageCenterLoc[1],
-                                                                    estimatedMpp, test.date, refImagePath)
+        ImageFetcher.fetchReferenceImage.fetchReferenceImage(test.imageCenterLoc[0], test.imageCenterLoc[1],
+                                                             estimatedMpp, test.date, refImagePath)
 
 
     #print 'Skipping image processing!'
@@ -140,7 +140,7 @@ def runTest(test, options):
     # Test geo conversion
     geoTransform = register_image.convertTransformToGeo(transform, testImagePath, refImagePath)
 
-    return diff, confidence
+    return (diff, confidence, geoTransform)
 
 def main():
 
@@ -156,24 +156,64 @@ def main():
     parser.add_argument('--use-existing', dest='useExisting', action='store_true', default=False,
                                           help='Just print results for the last computed transforms')
     
+    parser.add_argument('--sequence', dest='testSequence', action='store_true', default=False,
+                                          help='Run the sequence test.')
+    
 
     options = parser.parse_args()
     
-    print 'Reading test data file...'
-    testInfo = readTestInfo()
+    # A seperate test for processing a sequence of images
+    if options.testSequence:
+        print '----- Running sequence test -----'
+        
+        seqSeed = TestInstance('/home/smcmich1/data/geocam_images/sequence/ISS001-400-4.JPG, ' + 
+                               '31.0, 30.0, 33.1, 31.1, 350, 2001.02.26' )
+        
+        otherImagePaths = ['/home/smcmich1/data/geocam_images/sequence/ISS001-400-5.JPG',
+                           '/home/smcmich1/data/geocam_images/sequence/ISS001-400-8.JPG',
+                           '/home/smcmich1/data/geocam_images/sequence/ISS001-400-10.JPG',
+                           '/home/smcmich1/data/geocam_images/sequence/ISS001-400-14.JPG',
+                           '/home/smcmich1/data/geocam_images/sequence/ISS001-400-15.JPG']
+        
+        # Run the initial seed
+        print 'Processing initial seed...'
+        (transform, confidence) = register_image.register_image(seqSeed.imagePath,
+                                                                seqSeed.imageCenterLoc[0],
+                                                                seqSeed.imageCenterLoc[1],
+                                                                seqSeed.focalLength,
+                                                                seqSeed.date)
+        if not (confidence == register_image.CONFIDENCE_HIGH):
+            raise Exception('Cannot run sequence test if first image fails!')
+        
+        # Run all the other images
+        for path in otherImagePaths:
+            print 'Testing image: ' + path
+            force = not options.useExisting
+            (transform, confidence) = register_image.register_image(path,
+                                                                    seqSeed.imageCenterLoc[0],
+                                                                    seqSeed.imageCenterLoc[1],
+                                                                    seqSeed.focalLength,
+                                                                    seqSeed.date,
+                                                                    seqSeed.imagePath, transform)
+            print 'Got confidence: ' + str(confidence)
+
+        print '----- Finished sequence test -----'
+        return 0
+    
 
     print '===================== Started running tests ====================='
 
+    testInfo = readTestInfo()
     confidenceCounts = [0, 0, 0]
     results = []
     for i in testInfo:
         try:
-            score, confidence = runTest(i, options)
+            (score, confidence, geoTransform) = runTest(i, options)
         except Exception, e:
             score      = 0
             confidence = register_image.CONFIDENCE_NONE
-            #print 'Failed to process image ' + i.imagePath
-            #print(traceback.format_exc())
+            print 'Failed to process image ' + i.imagePath
+            print(traceback.format_exc())
         results.append(score)
         
         confidenceCounts[confidence] += 1

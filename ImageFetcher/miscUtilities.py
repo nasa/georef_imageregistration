@@ -133,7 +133,7 @@ def computeScale(metersPerDegree, metersPerPixel):
     '''Compute the scale for the getDownloadUrl function'''
 
     pixels_per_degree = metersPerDegree / metersPerPixel
-    print 'pixelsPerDegree = ' + str(pixels_per_degree)
+    #print 'pixelsPerDegree = ' + str(pixels_per_degree)
 
     mercator_range = 256.0
     # pixels_per_degree = (mercator_range / 360.0) * scale
@@ -146,6 +146,8 @@ def computeScale(metersPerDegree, metersPerPixel):
 
 def downloadEeImage(eeObject, bbox, scale, file_path, vis_params=None):
     '''Downloads an Earth Engine image object to the specified path'''
+
+    workDir = tempfile.mkdtemp()
 
     # For now we require a GDAL installation in order to save images
     if not(which('gdalbuildvrt') and which('gdal_translate')):
@@ -199,7 +201,7 @@ def downloadEeImage(eeObject, bbox, scale, file_path, vis_params=None):
     # Generate a temporary path for the packed download file
     temp_prefix = 'CMT_temp_download_' + dummy_name
     zip_name    = temp_prefix + '.zip'
-    zip_path    = os.path.join(TEMP_FILE_DIR, zip_name) 
+    zip_path    = os.path.join(workDir, zip_name) 
     
     # Download the packed file
     print 'Downloading image...'
@@ -231,15 +233,15 @@ def downloadEeImage(eeObject, bbox, scale, file_path, vis_params=None):
         color_names = ['vis-red', 'vis-green', 'vis-blue']
     for b in color_names:
         band_filename  = dummy_name + '.' + b + '.tif'
-        extracted_path = os.path.join(TEMP_FILE_DIR, band_filename)
+        extracted_path = os.path.join(workDir, band_filename)
         #print band_filename
         #print extracted_path
-        z.extract(band_filename, TEMP_FILE_DIR)
+        z.extract(band_filename, workDir)
         temp_band_files.append(extracted_path)
         band_files_string += ' ' + extracted_path
         
     # Generate an intermediate vrt file
-    vrt_path = os.path.join(TEMP_FILE_DIR, temp_prefix + '.vrt')
+    vrt_path = os.path.join(workDir, temp_prefix + '.vrt')
     cmd = 'gdalbuildvrt -separate -resolution highest ' + vrt_path +' '+ band_files_string
     #print cmd
     os.system(cmd)

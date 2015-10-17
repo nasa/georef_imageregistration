@@ -134,20 +134,58 @@ def getCloudPercentage(image, bounds):
 
 
 # List of image sources we will use, in order.
-NUM_SENSOR_OPTIONS = 6
-SENSOR_LANDSAT_5 = 0
-SENSOR_LANDSAT_7 = 1 
-SENSOR_LANDSAT_8 = 2
-SENSOR_LANDSAT_4 = 3
-SENSOR_LANDSAT_3 = 4
-SENSOR_LANDSAT_2 = 5
+#NUM_SENSOR_OPTIONS = 6
+#SENSOR_LANDSAT_5 = 1
+#SENSOR_LANDSAT_8 = 0
+#SENSOR_LANDSAT_7 = 2
+#SENSOR_LANDSAT_4 = 3
+#SENSOR_LANDSAT_3 = 4
+#SENSOR_LANDSAT_2 = 5
 
-# Indices match the constants above
-sensorStringNames = ['LT5_L1T', 'LE7_L1T', 'LC8_L1T', 'LM4_L1T', 'LM3_L1T', 'LM2_L1T']
+## Indices match the constants above
+#sensorStringNames = ['LC8_L1T', 'LT5_L1T', 'LE7_L1T', 'LM4_L1T', 'LM3_L1T', 'LM2_L1T']
+
+LANDSAT_SENSORS = [
+    {'name': 'LC8_L1T',  'rgbBands': ['B4', 'B3', 'B2']},
+    {'name': 'LT5_L1T',  'rgbBands': ['B3', 'B2', 'B1']},
+    {'name': 'LE7_L1T',  'rgbBands': ['B3', 'B2', 'B1']}#,
+    #{'name': 'LM4_L1T',  'rgbBands': ['B3', 'B2', 'B1']},
+    #{'name': 'LM3_L1T',  'rgbBands': ['B3', 'B2', 'B1']},
+    #{'name': 'LM2_L1T',  'rgbBands': ['B3', 'B2', 'B1']}
+]
 
 
 
-def findClearImage(bounds):
+
+def fetchSensorSeason(sensorName, bounds, date, bigRange=False):
+    ''''''
+       
+    if bigRange: # Grab all the data we can!
+        dateStart = ee.Date.fromYMD(1970, 1,  01)
+        dateEnd   = ee.Date.fromYMD(2015, 10, 15)
+        collection = ee.ImageCollection(sensorName).filterDate(dateStart, dateEnd).filterBounds(bounds)
+        return collection
+    
+    
+    # Otherwise grab nearby portions of the year
+    fullCollection = None    
+    monthRange = 3.0
+    for i in [-2, -1, 0, 1, 2]:
+
+        yearDate   = date.advance(-1.0*i, 'year')
+        dateStart  = yearDate.advance(-2.0*monthRange, 'month')
+        dateEnd    = yearDate.advance(monthRange,  'month')
+        collection = ee.ImageCollection(sensorName).filterDate(dateStart, dateEnd).filterBounds(bounds)
+        if fullCollection:
+            fullCollection = fullCollection.merge(collection)
+        else:
+            fullCollection = collection
+        #print fullCollection.size().getInfo()
+        
+    return fullCollection
+
+
+def findClearImage(bounds, date):
     '''Find a suitable reference image at a location'''
     
     MAX_CLOUD_PERCENTAGE = 0.00
@@ -160,23 +198,18 @@ def findClearImage(bounds):
     ## - We change the band name to make this work with the evaluation function call further down
     #waterMask = ee.Image("MODIS/MOD44W/MOD44W_005_2000_02_24").select(['water_mask'], ['b1'])
 
-
-    # TODO: Update this to check the same season over multiple years
-    # Keep checking images at this location until we find one free of clouds
-    eeDate     = ee.Date.fromYMD(2015, 10, 05) # June first
-    datesStart = ee.Date.fromYMD(1970, 1,  01)#eeDate.advance(-40.0, 'year')
-    datesEnd   = ee.Date.fromYMD(2015, 10, 05)#eeDate.advance(0.0, 'year') 
     
     DESIRED_NUM_IMAGES = 10
     bestNumImages = 0
-    bestSensor    = 0
+    bestSensor    = None
     
     # Keep trying sensors until we get a good image
     # - The sensors are in order of decreasing desireability
-    for sensor in range(0,NUM_SENSOR_OPTIONS):
-        requestString = sensorStringNames[sensor]
+    for sensor in LANDSAT_SENSORS:
+        requestString = sensor['name']
     
-        refImageCollection = ee.ImageCollection(requestString).filterDate(datesStart, datesEnd).filterBounds(bounds)
+        #refImageCollection = ee.ImageCollection(requestString).filterDate(dateStart, dateEnd).filterBounds(bounds)
+        refImageCollection = fetchSensorSeason(requestString, bounds, date)
         numRefImagesFound  = refImageCollection.size().getInfo()
         if (numRefImagesFound > bestNumImages):
             bestNumImages = numRefImagesFound
@@ -186,21 +219,23 @@ def findClearImage(bounds):
         if numRefImagesFound < DESIRED_NUM_IMAGES:
             continue # Skip sensors without enough image data
     
-        composite = ee.Algorithms.Landsat.simpleComposite(refImageCollection)
+        composite = ee.Algorithms.Landsat.simpleComposite(refImageCollection, asFloat=True)
         
         #cloudPercentage = getCloudPercentage(composite, rectBounds)
         #print 'Cloud percentage in composite = ' + str(cloudPercentage)
         
-        return composite
+        return (composite, sensor)
 
     if (bestNumImages > 0):
+        requestString = bestSensor['name']
         # We did not get as many images as we wanted, but we still got something with one sensor
-        refImageCollection = ee.ImageCollection(sensorStringNames[bestSensor]).filterDate(datesStart, datesEnd).filterBounds(bounds)
-        composite = ee.Algorithms.Landsat.simpleComposite(refImageCollection)
-        return composite
+        #refImageCollection = ee.ImageCollection(sensorStringNames[bestSensor]).filterDate(dateStart, dateEnd).filterBounds(bounds)
+        refImageCollection = fetchSensorSeason(requestString, bounds, date, True)
+        composite = ee.Algorithms.Landsat.simpleComposite(refImageCollection, asFloat=True)
+        return (composite, bestSensor)
         
 
-    # If we made it here then we failed to find a good set of images
+    # If we made it here then we failed to find a any images!
     
     raise Exception('Did not find enough landsat images in the requested region: ' + str(bounds.getInfo()))
 
@@ -223,19 +258,30 @@ def findClearImage(bounds):
     #return refImage
 
 
-#def rgbFromRaw(image):
-#    ''' Produces a nice RGB image fram a raw Landsat image'''
-#    
-#    return image.select
-
-
 def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     '''Fetch a reference Earth image for a given location and save it to disk'''
     
     # Try to get an image this size at the requested resolution.
-    DESIRED_IMAGE_SIZE = 2000
+    #DESIRED_IMAGE_SIZE = 2000
+    #bufferSizeMeters = (DESIRED_IMAGE_SIZE / 2.0) * metersPerPixel
 
-    bufferSizeMeters = (DESIRED_IMAGE_SIZE / 2.0) * metersPerPixel    
+    MIN_IMAGE_SIZE  = 2000  # Don't fetch an image smaller than this
+    MAX_IMAGE_SIZE  = 3000
+    MAX_ERROR_RANGE = 100000 # 50km possible error handled byt his amount
+    
+    # Default calculation is based on the max error range, but it is capped by pixel size
+    bufferSizeMeters = MAX_ERROR_RANGE / 2.0
+    estPixelSize     = MAX_ERROR_RANGE / metersPerPixel
+    if estPixelSize < MIN_IMAGE_SIZE:
+        bufferSizeMeters = (MIN_IMAGE_SIZE*metersPerPixel) / 2.0
+    if estPixelSize > MAX_IMAGE_SIZE:
+        print 'Warning: capping image size below ' + str(estPixelSize)
+        bufferSizeMeters = (MAX_IMAGE_SIZE*metersPerPixel) / 2.0
+        # TODO: Lower the image resolution in this case?
+
+    
+    # TODO: Check for a max size too!
+    
     center = ee.Geometry.Point(longitude, latitude)
     circle = center.buffer(bufferSizeMeters)
     bounds = circle.bounds()
@@ -246,24 +292,40 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     #print 'Meters per degree = ' + str(metersPerDegree)
     scale = miscUtilities.computeScale(metersPerDegree, metersPerPixel)
     
-    print 'Computed scale = ' + str(scale)
-    
-    # TODO: Incorporate the date!
-    
-    try:
-        image = findClearImage(bounds)
-    except:
-        print 'Failed to find reference image, trying again with larger boundary.'
-        center = ee.Geometry.Point(longitude, latitude)
-        circle = center.buffer(2*bufferSizeMeters)
-        bounds = circle.bounds()
-        image = findClearImage(bounds)
+    #print 'Computed scale = ' + str(scale)
+
+    #print date
+    eeDate = ee.Date.parse('YYYY.MM.DD', date)
+        
+    #try:
+    #image = findClearImage(bounds, dateStart, dateEnd)
+    (image, sensor) = findClearImage(bounds, eeDate)
+    #except:
+    #    print 'Failed to find reference image, trying again with larger boundary.'
+    #    center = ee.Geometry.Point(longitude, latitude)
+    #    circle = center.buffer(2*bufferSizeMeters)
+    #    bounds = circle.bounds()
+    #    image = findClearImage(bounds, dateStart, dateEnd)
 
     percentValid = image.mask().reduceRegion(ee.Reducer.mean(), bounds, scale*10).getInfo()['B1']
+    print 'Percent valid = ' + str(percentValid)
     
-    landsatVisParams = {'bands': ['B3', 'B2', 'B1'], 'min': 0, 'max': 128}
-    #landsatVisParams = {'bands': ['B3', 'B2', 'B1'], 'min': 0, 'max': 0.4}
-    #landsatVisParams = {'bands': ['B3', 'B2', 'B1'], 'gain': '1.8, 1.5, 1.0'}
+    # Dynamically estimating the search range seems like more trouble than it is worth at the moment
+    
+    #print image.select(sensor['rgbBands']).reduceRegion(ee.Reducer.mean(), bounds, 400).getInfo()
+    #minVals = image.select(sensor['rgbBands']).reduceRegion(ee.Reducer.min(), bounds, 400).getInfo()
+    #maxVals = image.select(sensor['rgbBands']).reduceRegion(ee.Reducer.max(), bounds, 400).getInfo()
+    #minVal  = min(minVals.itervalues())
+    #maxVal  = max(maxVals.itervalues())
+    #print minVals
+    #print maxVals
+    #print minVal
+    #print maxVal
+    
+    #landsatVisParams = {'bands': sensor['rgbBands'], 'min': 0, 'max': 128}
+    landsatVisParams = {'bands': sensor['rgbBands'], 'min': 0, 'max': 0.4}
+    #landsatVisParams = {'bands': sensor['rgbBands'], 'min': minVal, 'max': maxVal}
+    #landsatVisParams = {'bands': sensor['rgbBands'], 'gain': '1.8, 1.5, 1.0'}
     miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
 
     return percentValid
