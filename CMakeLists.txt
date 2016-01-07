@@ -37,19 +37,19 @@ set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
 
 #--- Find OpenCV
 
-#find_package( OpenCV 3.0.0 REQUIRED )
+find_package( OpenCV 3.0.0 REQUIRED )
 
 # Manually force it to find the correct path!
-set(OpenCV_FOUND True)
-set(OpenCV_LIBS "${OPENCV_INSTALL_DIR}/lib/libopencv_core.so" 
-                "${OPENCV_INSTALL_DIR}/lib/libopencv_highgui.so" 
-                "${OPENCV_INSTALL_DIR}/lib/libopencv_stitching.so"
-                "${OPENCV_INSTALL_DIR}/lib/libopencv_features2d.so")
-set(OpenCV_INCLUDE_DIR "${OPENCV_INSTALL_DIR}/include"
-                       "${OPENCV_INSTALL_DIR}/include/opencv"
-                       "${OPENCV_INSTALL_DIR}/include/opencv2")
-set(OpenCV_INCLUDE_DIRS "${OpenCV_INCLUDE_DIR}")
-
+#set(OpenCV_FOUND True)
+#set(OpenCV_LIBS "${OPENCV_INSTALL_DIR}/lib/libopencv_core.so" 
+#                "${OPENCV_INSTALL_DIR}/lib/libopencv_highgui.so" 
+#                "${OPENCV_INSTALL_DIR}/lib/libopencv_stitching.so"
+#                "${OPENCV_INSTALL_DIR}/lib/libopencv_features2d.so")
+#set(OpenCV_INCLUDE_DIR "${OPENCV_INSTALL_DIR}/include"
+#                       "${OPENCV_INSTALL_DIR}/include/opencv"
+#                       "${OPENCV_INSTALL_DIR}/include/opencv2")
+#set(OpenCV_INCLUDE_DIRS "${OpenCV_INCLUDE_DIR}")
+#
 message("Found OpenCV ${OpenCV_INCLUDE_DIRS}")
 
 

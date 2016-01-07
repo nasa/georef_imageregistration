@@ -15,8 +15,12 @@ To install Earth Engine, follow these steps:
 Step B is performed using a C++ program relying on OpenCV 3.0
 To install, follow these steps:
 1 - Build OpenCV 3.0 with the contributor modules package.
+	(follow tutorial here: http://www.pyimagesearch.com/2015/06/22/install-opencv-3-0-and-python-2-7-on-ubuntu/)
   - I used the following CMake line to do this:
     cmake ../CMakeLists.txt -DOPENCV_EXTRA_MODULES_PATH=/home/smcmich1/repo/opencv_contrib/modules -DBUILD_opencv_apps=OFF -DBUILD_opencv_gpu=OFF -DBUILD_opencv_video=OFF -DBUILD_opencv_ts=OFF -DBUILD_opencv_java=OFF -DWITH_FFMPEG=OFF -DWITH_DSHOW=OFF -DWITH_GSTREAMER=OFF -DBUILD_ANDROID_EXAMPLES=OFF -DBUILD_DOCS=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_WITH_DEBUG_INFO=OFF -DWITH_OPENGL=OFF
+
+	NOTE: make sure to use the cmake command in the tutorials. The one above doesn't work!
+		  And make sure to do "make install" as well as "make"!!!
   - Building OpenCV may not go smoothly, so we will have to update this file with more specific instructions
     as we go.
   - Sample install instructions here may be useful: http://www.pyimagesearch.com/2015/06/22/install-opencv-3-0-and-python-2-7-on-ubuntu/
@@ -26,3 +30,15 @@ To install, follow these steps:
     cmake ..  -DOPENCV_INSTALL_DIR=/home/smcmich1/programs/opencv_install/
   - Once this is built, everything should be ready to use.
 
+==============================
+Grace's notes:
+Two step process A&B
+A: center point + zoom level are used to fetch new images
+B: Tries to align the images together and returns a transformation matrix (image to lat lon)
+
+Also gives a three part confidence estimate (I should take the "high" and ignore the others)
+
+Takes optional fields (referencedImagePath and referencedGeoTransform), which take the similar image and the transform. If you do this step, it will use the given image as a reference image and will skip the first step. 
+This is good when there are sequence of images of the same area.
+
+registerImage.py is the main function.

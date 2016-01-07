@@ -1,5 +1,3 @@
-
-
 import os
 import sys
 import argparse
@@ -8,14 +6,9 @@ import traceback
 import tempfile
 import numpy
 import ImageFetcher.fetchReferenceImage
-
 import IrgStringFunctions, IrgGeoFunctions
 
-# TODO: Make sure this gets found!
-basepath    = os.path.abspath(sys.path[0])
-pythonpath  = os.path.abspath(basepath + '/../geocamTiePoint/geocamTiePoint')
-sys.path.insert(0, pythonpath)
-import geocamTiePoint.transform
+from geocamTiePoint import transform
 
 #======================================================================================
 # Supporting functions
@@ -27,15 +20,15 @@ CONFIDENCE_HIGH = 2
 
 CONFIDENCE_STRINGS = ['NONE', 'LOW', 'HIGH']
 
-def convertTransformToGeo(transform, newImagePath, refImagePath, refImageGeoTransform=None):
+def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransform=None):
     '''Converts an image-to-image homography to the ProjectiveTransform
        class used elsewhere in geocam.
        Either the reference image must be geo-registered, or the geo transform for it
        must be provided.'''
 
     # Convert the image-to-image transform parameters to a class
-    temp = numpy.array([transform[0:3], transform[3:6], transform[6:9]] )
-    imageToRefTransform = geocamTiePoint.transform.ProjectiveTransform(temp)
+    temp = numpy.array([tform[0:3], tform[3:6], tform[6:9]] )
+    imageToRefTransform = transform.ProjectiveTransform(temp)
 
     newImageSize = ImageFetcher.miscUtilities.getImageSize(newImagePath)
 
@@ -65,7 +58,7 @@ def convertTransformToGeo(transform, newImagePath, refImagePath, refImageGeoTran
                 # Use the geo information of the reference image
                 homogPixel = numpy.array(list(pixelInRefImage) + [1], dtype='float64') # Homogenize the input point
                 gdcCoordinate   = refPixelToGdcTransform.dot(homogPixel)[0:2]
-                projectedCoordinate = geocamTiePoint.transform.lonLatToMeters(gdcCoordinate)
+                projectedCoordinate = transform.lonLatToMeters(gdcCoordinate)
             else: # Use the user-provided transform
                 projectedCoordinate = refImageGeoTransform.forward(pixelInRefImage)
                 
@@ -75,7 +68,7 @@ def convertTransformToGeo(transform, newImagePath, refImagePath, refImageGeoTran
 
     # Compute a transform object that converts from the new image to projected coordinates
     #print 'Converting transform to world coordinates...'
-    outputTransform = geocamTiePoint.transform.getTransform(numpy.asarray(worldPoints),
+    outputTransform = transform.getTransform(numpy.asarray(worldPoints),
                                                             numpy.asarray(imagePoints))
     
     #print outputTransform   
@@ -127,9 +120,9 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
     
     if not os.path.exists(transformPath):
         #raise Exception('Failed to compute transform!')
-        transform = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+        tform = [1, 0, 0, 0, 1, 0, 0, 0, 1]
         confidence = CONFIDENCE_NONE
-        return (transform, confidence)
+        return (tform, confidence)
     
     # Load the computed transform and confidence
     handle   = open(transformPath, 'r')
@@ -141,11 +134,11 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
         confidence = CONFIDENCE_LOW
     if 'CONFIDENCE_HIGH' in lines[0]:
         confidence = CONFIDENCE_HIGH
-    transform = [float(f) for f in lines[1].split(',')] +  \
+    tform = [float(f) for f in lines[1].split(',')] +  \
                 [float(f) for f in lines[2].split(',')] +  \
                 [float(f) for f in lines[3].split(',')]
     
-    return (transform, confidence)
+    return (tform, confidence)
 
 
 #======================================================================================
@@ -184,13 +177,13 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
 
     # Try to align to the reference image
     force = False
-    (transform, confidence) = alignImages(imagePath, refImagePath, workPrefix, force, debug)
+    (tform, confidence) = alignImages(imagePath, refImagePath, workPrefix, force, debug)
 
     if (confidence == CONFIDENCE_NONE):
         raise Exception('Failed to compute tranform!')
 
     # Convert the transform into a pixel-->Projected coordinate transform
-    geoTransform = convertTransformToGeo(transform, imagePath, refImagePath, referenceGeoTransform)
+    geoTransform = convertTransformToGeo(tform, imagePath, refImagePath, referenceGeoTransform)
 
     return (geoTransform, confidence)
 
