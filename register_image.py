@@ -9,6 +9,7 @@ import ImageFetcher.fetchReferenceImage
 import IrgStringFunctions, IrgGeoFunctions
 
 from geocamTiePoint import transform
+from geocamTiePoint import settings
 
 #======================================================================================
 # Supporting functions
@@ -111,9 +112,13 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
     if (not os.path.exists(transformPath) or force):
         if os.path.exists(transformPath):
             os.remove(transformPath) # Clear out any old results
-        cmd = ['build/registerGeocamImage', refImagePath, testImagePath, transformPath]
+            
+        cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/registerGeocamImage'
+        cmd = [cmdPath, refImagePath, testImagePath, transformPath]
         if debug:
             cmd.append('--debug')
+        print "command is "
+        print cmd
         #print cmd
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
@@ -150,7 +155,6 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
     '''Attempts to geo-register the provided image.
        Returns a transform from image coordinates to projected meters coordinates.
        Also returns an evaluation of how likely the registration is to be correct.'''
-
     debug = False
 
     # Set up paths in a temporary directory

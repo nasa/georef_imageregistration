@@ -107,7 +107,6 @@ def runTest(test, options):
         ImageFetcher.fetchReferenceImage.fetchReferenceImage(test.imageCenterLoc[0], test.imageCenterLoc[1],
                                                              estimatedMpp, test.date, refImagePath)
 
-
     #print 'Skipping image processing!'
     #return 0 # DEBUG skip processing, just fetch the images!
 

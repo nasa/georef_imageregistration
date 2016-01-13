@@ -45,7 +45,6 @@ import miscUtilities
 
 
 
-
 def get_image_collection_landsat5(bounds, start_date, end_date):
     '''Retrieve Landsat 5 imagery for the selected location and dates.'''
 
@@ -260,7 +259,6 @@ def findClearImage(bounds, date):
 
 def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     '''Fetch a reference Earth image for a given location and save it to disk'''
-    
     # Try to get an image this size at the requested resolution.
     #DESIRED_IMAGE_SIZE = 2000
     #bufferSizeMeters = (DESIRED_IMAGE_SIZE / 2.0) * metersPerPixel
