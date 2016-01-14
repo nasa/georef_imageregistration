@@ -120,6 +120,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
         print "command is "
         print cmd
         #print cmd
+        #os.system('build/registerGeocamImage '+ refImagePath+' '+testImagePath+' '+transformPath+' --debug')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
     
@@ -129,7 +130,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
         confidence = CONFIDENCE_NONE
         return (tform, confidence)
     
-    # Load the computed transform and confidence
+    # Load the computed transform, confidence, and inliers.
     handle   = open(transformPath, 'r')
     fileText = handle.read()
     handle.close()
@@ -139,11 +140,23 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
         confidence = CONFIDENCE_LOW
     if 'CONFIDENCE_HIGH' in lines[0]:
         confidence = CONFIDENCE_HIGH
-    tform = [float(f) for f in lines[1].split(',')] +  \
-                [float(f) for f in lines[2].split(',')] +  \
-                [float(f) for f in lines[3].split(',')]
+    transform = [float(f) for f in lines[2].split(',')] +  \
+                [float(f) for f in lines[3].split(',')] +  \
+                [float(f) for f in lines[4].split(',')]
+    refInliers  = []
+    testInliers = []
+    for line in lines[6:]:
+        if len(line) < 2:
+            break
+        numbers = [float(f) for f in line.split(',')]
+        refInliers.append( (numbers[0], numbers[1]))
+        testInliers.append((numbers[2], numbers[3]))
     
-    return (tform, confidence)
+    print transform
+    print refInliers
+    print testInliers
+    
+    return (transform, confidence, refInliers, testInliers)
 
 
 #======================================================================================
@@ -151,11 +164,13 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
 
 
 def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
-                   refImagePath=None, referenceGeoTransform=None):
+                   refImagePath=None, referenceGeoTransform=None, debug=False, force=False):
     '''Attempts to geo-register the provided image.
        Returns a transform from image coordinates to projected meters coordinates.
        Also returns an evaluation of how likely the registration is to be correct.'''
-    debug = False
+
+    if not (os.path.exists(imagePath)):
+        raise Exception('Input image path does not exist!')
 
     # Set up paths in a temporary directory
     if not debug:
@@ -180,8 +195,8 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
             raise Exception('Provided reference image path does not exist!')
 
     # Try to align to the reference image
-    force = False
-    (tform, confidence) = alignImages(imagePath, refImagePath, workPrefix, force, debug)
+    (transform, confidence, refInliers, testInliers) = \
+            alignImages(imagePath, refImagePath, workPrefix, force, debug)
 
     if (confidence == CONFIDENCE_NONE):
         raise Exception('Failed to compute tranform!')
@@ -189,9 +204,18 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
     # Convert the transform into a pixel-->Projected coordinate transform
     geoTransform = convertTransformToGeo(tform, imagePath, refImagePath, referenceGeoTransform)
 
-    return (geoTransform, confidence)
+    return (geoTransform, confidence, refInliers, testInliers)
 
 
+def test():
+  '''Run a simple test to make sure the code runs'''
+  
+  register_image('/home/smcmich1/data/geocam_images/ISS030-E-254011.JPG', -7.5, 29.0, 400, '2012.04.21',
+                 refImagePath=None, referenceGeoTransform=None, debug=True, force=False)
+
+# Simple test script
+if __name__ == "__main__":
+    sys.exit(test())
 
 
 
