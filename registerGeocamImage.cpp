@@ -23,10 +23,24 @@ enum DetectorType {DETECTOR_TYPE_BRISK = 0,
 
 /// Write the transform parameters and the confidence to a file on disk
 bool writeOutput(const std::string &outputPath, const cv::Mat &transform,
+                 const std::vector<cv::Point2f> &refInlierCoords, 
+                 const std::vector<cv::Point2f> &matchInlierCoords,
                  std::string confidenceString, bool print=false)
 {
+  // Error checks
+  const size_t numInliers = refInlierCoords.size();
+  if (matchInlierCoords.size() != numInliers)
+  {
+    printf("Logic error - number of inliers do not match!");
+    return false;
+  }
+
+  // Open the file and write out a confidence measure
   std::ofstream file(outputPath.c_str());
   file << confidenceString << std::endl;
+  
+  // Write out the computed transform between the two images
+  file << "TRANSFORM:" << std::endl;
   for (size_t r=0; r<transform.rows; ++r)
   {
     for (size_t c=0; c<transform.cols-1; ++c)
@@ -39,6 +53,17 @@ bool writeOutput(const std::string &outputPath, const cv::Mat &transform,
     if (print)
         printf("%lf\n", transform.at<double>(r,transform.cols-1));
   }
+  
+  // Write out the list of interest point pairs.
+  file << "INLIERS:" << std::endl;
+  for (size_t i=0; i<numInliers; ++i)
+  {
+    file << refInlierCoords  [i].x << ", " << refInlierCoords  [i].y << ", " 
+         << matchInlierCoords[i].x << ", " << matchInlierCoords[i].y << std::endl;
+  }
+  
+  
+  
   file.close();
   
   return (!file.fail());
@@ -162,6 +187,8 @@ void affineInlierPrune(std::vector<cv::Point2f> &ptsA, std::vector<cv::Point2f> 
 /// Returns the number of inliers
 int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn,
                           cv::Mat &transform,
+                          std::vector<cv::Point2f> &refInlierCoords, 
+                          std::vector<cv::Point2f> &matchInlierCoords,
                           const std::string debugFolder,
                           const int          kernelSize  =5, 
                           const DetectorType detectorType=DETECTOR_TYPE_ORB,
@@ -220,10 +247,19 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     extractor = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
   }
   
+  printf("detect...\n");
   detector->detect(  refImage, keypointsA); // Basemap
+  printf("extract...\n");
   extractor->compute(refImage, keypointsA, descriptorsA);
 
-  detector->detect(  matchImage, keypointsB); // HRSC
+  // TODO: Try out a cloud masking algorithm for the ISS image!
+  // - Handle clouds in the reference image using Earth Engine.
+  //cv::Mat keypointMask(matchImage.size(), CV_8U)
+  
+  printf("detect...\n");
+  //detector->detect(  matchImage, keypointsB, keypointMask); // ISS image
+  detector->detect(  matchImage, keypointsB); // ISS image
+  printf("extract...\n");
   extractor->compute(matchImage, keypointsB, descriptorsB);
 
   if ( (keypointsA.size() == 0) || (keypointsB.size() == 0) )
@@ -426,16 +462,15 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   }
   printf("Obtained %d inliers.\n", inlierIndices.size());
 
-  
-  std::vector<cv::Point2f> usedPtsRef, usedPtsMatch;
   for(size_t i = 0; i < inlierIndices.size(); i++ )
   {
     // Get the keypoints from the used matches
-    usedPtsRef.push_back  (refPts  [inlierIndices[i]]);
-    usedPtsMatch.push_back(matchPts[inlierIndices[i]]);
+    refInlierCoords.push_back  (refPts  [inlierIndices[i]]);
+    matchInlierCoords.push_back(matchPts[inlierIndices[i]]);
   }
 
-  affineInlierPrune(usedPtsMatch, usedPtsRef);
+  // A function to help filter results but it is not currently used
+  //affineInlierPrune(matchInlierCoords, refInlierCoords);
   
   if (debug)
   {
@@ -447,14 +482,19 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     cv::imwrite(debugFolder+"match_debug_image.tif", matches_image3);
   }
 
+
+
   // Return the number of inliers found
   return static_cast<int>(numInliers);
 }
 
 /// Calls computImageTransform with multiple parameters until one succeeds
 int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchImageIn,
-                                const std::string &debugFolder,
                                 cv::Mat &transform,
+                                std::vector<cv::Point2f> &refInlierCoords, 
+                                std::vector<cv::Point2f> &matchInlierCoords,
+                                const std::string &debugFolder,
+
                                 bool debug)
 {
   // Try not to accept solutions with fewer outliers
@@ -464,6 +504,10 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
   int bestNumInliers = 0;
   int numInliers;
   
+  // To improve run speed, this function is currently set up to try only a single
+  //  parameter configuration.
+  // - If this changes, we need to make sure that the best set of inliers make it to the output variables.
+  
   // Keep trying transform parameter combinations until we get a good
   //   match as determined by the inlier count
   for (int kernelSize=5; kernelSize<6; kernelSize += 20)
@@ -472,7 +516,9 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
     {
       printf("Attempting transform with kernel size = %d and detector type = %d\n",
              kernelSize, detectorType);
-      numInliers = computeImageTransform(refImageIn, matchImageIn, transform, debugFolder,
+      numInliers = computeImageTransform(refImageIn, matchImageIn, transform, 
+                                         refInlierCoords, matchInlierCoords,
+                                         debugFolder,
                                          kernelSize, static_cast<DetectorType>(detectorType), debug);
       
       
@@ -555,8 +601,12 @@ int main(int argc, char** argv )
   std::string debugFolder = outputPath.substr(0,stop+1);
 
   // First compute the transform between the two images
+  // - The transform is from REF to MATCH
   cv::Mat transform(3, 3, CV_32FC1);
-  int numInliers = computeImageTransformRobust(refImageIn, matchImageIn, debugFolder, transform, debug);
+  std::vector<cv::Point2f> refInlierCoords, matchInlierCoords;
+  int numInliers = computeImageTransformRobust(refImageIn, matchImageIn, transform, 
+                                               refInlierCoords, matchInlierCoords,
+                                               debugFolder, debug);
   if (!numInliers)
   {
     printf("Failed to compute image transform!\n");
@@ -567,7 +617,7 @@ int main(int argc, char** argv )
   printf("Computed %s transform with %d inliers.\n", confString.c_str(), numInliers);
 
   // Write the output to a file
-  writeOutput(outputPath, transform, confString, debug);
+  writeOutput(outputPath, transform, refInlierCoords, matchInlierCoords, confString, debug);
   
   if (!debug) // Only debug stuff beyond this point
     return 0;
