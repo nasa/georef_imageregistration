@@ -8,6 +8,10 @@ import numpy
 import ImageFetcher.fetchReferenceImage
 import IrgStringFunctions, IrgGeoFunctions
 
+#basepath    = os.path.abspath(sys.path[0]) # Scott debug
+#sys.path.insert(0, basepath + '/../geocamTiePoint')
+#sys.path.insert(0, basepath + '/../geocamUtilWeb')
+
 from geocamTiePoint import transform
 from geocamTiePoint import settings
 
@@ -58,7 +62,7 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
             if (not refImageGeoTransform):
                 # Use the geo information of the reference image
                 homogPixel = numpy.array(list(pixelInRefImage) + [1], dtype='float64') # Homogenize the input point
-                gdcCoordinate   = refPixelToGdcTransform.dot(homogPixel)[0:2]
+                gdcCoordinate       = refPixelToGdcTransform.dot(homogPixel)[0:2]
                 projectedCoordinate = transform.lonLatToMeters(gdcCoordinate)
             else: # Use the user-provided transform
                 projectedCoordinate = refImageGeoTransform.forward(pixelInRefImage)
@@ -70,7 +74,7 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
     # Compute a transform object that converts from the new image to projected coordinates
     #print 'Converting transform to world coordinates...'
     outputTransform = transform.getTransform(numpy.asarray(worldPoints),
-                                                            numpy.asarray(imagePoints))
+                                             numpy.asarray(imagePoints))
     
     #print outputTransform   
     #for i, w in zip(imagePoints, worldPoints):
@@ -108,6 +112,8 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
     
     transformPath = workPrefix + '-transform.txt'
     
+    # The computed transform is from testImage to refImage
+    
     # Run the C++ command if we need to generate the transform
     if (not os.path.exists(transformPath) or force):
         if os.path.exists(transformPath):
@@ -140,9 +146,9 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
         confidence = CONFIDENCE_LOW
     if 'CONFIDENCE_HIGH' in lines[0]:
         confidence = CONFIDENCE_HIGH
-    transform = [float(f) for f in lines[2].split(',')] +  \
-                [float(f) for f in lines[3].split(',')] +  \
-                [float(f) for f in lines[4].split(',')]
+    tform = [float(f) for f in lines[2].split(',')] +  \
+            [float(f) for f in lines[3].split(',')] +  \
+            [float(f) for f in lines[4].split(',')]
     refInliers  = []
     testInliers = []
     for line in lines[6:]:
@@ -152,11 +158,11 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
         refInliers.append( (numbers[0], numbers[1]))
         testInliers.append((numbers[2], numbers[3]))
     
-    print transform
-    print refInliers
-    print testInliers
+    #print tform
+    #print refInliers
+    #print testInliers
     
-    return (transform, confidence, refInliers, testInliers)
+    return (tform, confidence, testInliers, refInliers)
 
 
 #======================================================================================
@@ -195,7 +201,8 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
             raise Exception('Provided reference image path does not exist!')
 
     # Try to align to the reference image
-    (transform, confidence, refInliers, testInliers) = \
+    # - The transform is from image to refImage
+    (tform, confidence, imageInliers, refInliers) = \
             alignImages(imagePath, refImagePath, workPrefix, force, debug)
 
     if (confidence == CONFIDENCE_NONE):
@@ -204,14 +211,18 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
     # Convert the transform into a pixel-->Projected coordinate transform
     geoTransform = convertTransformToGeo(tform, imagePath, refImagePath, referenceGeoTransform)
 
-    return (geoTransform, confidence, refInliers, testInliers)
+    # For each input image inlier, generate the world coordinate.
+    geoInliers = [geoTransform.forward(x) for x in refInliers]
+    #print geoInliers
+
+    return (geoTransform, confidence, imageInliers, geoInliers)
 
 
 def test():
   '''Run a simple test to make sure the code runs'''
   
   register_image('/home/smcmich1/data/geocam_images/ISS030-E-254011.JPG', -7.5, 29.0, 400, '2012.04.21',
-                 refImagePath=None, referenceGeoTransform=None, debug=True, force=False)
+                 refImagePath=None, referenceGeoTransform=None, debug=True, force=True)
 
 # Simple test script
 if __name__ == "__main__":
