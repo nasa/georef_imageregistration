@@ -185,6 +185,7 @@ void affineInlierPrune(std::vector<cv::Point2f> &ptsA, std::vector<cv::Point2f> 
 
 
 /// Returns the number of inliers
+/// - Computed transform is from MATCH (second) to REF (first).
 int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn,
                           cv::Mat &transform,
                           std::vector<cv::Point2f> &refInlierCoords, 
@@ -601,7 +602,7 @@ int main(int argc, char** argv )
   std::string debugFolder = outputPath.substr(0,stop+1);
 
   // First compute the transform between the two images
-  // - The transform is from REF to MATCH
+  // - The transform is from MATCH (second input) to REF (first input)
   cv::Mat transform(3, 3, CV_32FC1);
   std::vector<cv::Point2f> refInlierCoords, matchInlierCoords;
   int numInliers = computeImageTransformRobust(refImageIn, matchImageIn, transform, 
