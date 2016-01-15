@@ -37,15 +37,14 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
 
     newImageSize = ImageFetcher.miscUtilities.getImageSize(newImagePath)
 
-    if not refImageGeoTransform:
-        # Make a transform from ref pixel to GDC using metadata on disk
-        refStats     = IrgGeoFunctions.getImageGeoInfo(refImagePath, False)
-        (minLon, maxLon, minLat, maxLat) = refStats['lonlat_bounds']
-        xScale = (maxLon - minLon) / refStats['image_size'][1]
-        yScale = (maxLat - minLat) / refStats['image_size'][0]
-        refPixelToGdcTransform = numpy.array([[xScale, 0,      minLon],
-                                              [0,      yScale, minLat],
-                                              [0 ,     0,      1     ]])
+    # Make a transform from ref pixel to GDC using metadata on disk
+    refStats     = IrgGeoFunctions.getImageGeoInfo(refImagePath, False)
+    (minLon, maxLon, minLat, maxLat) = refStats['lonlat_bounds']
+    xScale = (maxLon - minLon) / refStats['image_size'][1]
+    yScale = (maxLat - minLat) / refStats['image_size'][0]
+    refPixelToGdcTransform = numpy.array([[xScale, 0,      minLon],
+                                          [0,      yScale, minLat],
+                                          [0 ,     0,      1     ]])
 
     # Generate a list of point pairs
     imagePoints = []
@@ -73,14 +72,14 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
 
     # Compute a transform object that converts from the new image to projected coordinates
     #print 'Converting transform to world coordinates...'
-    outputTransform = transform.getTransform(numpy.asarray(worldPoints),
-                                             numpy.asarray(imagePoints))
+    testImageToProjectedTransform = transform.getTransform(numpy.asarray(worldPoints),
+                                                           numpy.asarray(imagePoints))
     
     #print outputTransform   
     #for i, w in zip(imagePoints, worldPoints):
     #    print str(i) + ' --> ' + str(w) + ' <--> ' + str(outputTransform.forward(i))
     
-    return outputTransform
+    return (testImageToProjectedTransform, refPixelToGdcTransform)
 
 
 def estimateGroundResolution(focalLength):
@@ -111,7 +110,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
     '''Call the C++ code to find the image alignment'''
     
     transformPath = workPrefix + '-transform.txt'
-    
+
     # The computed transform is from testImage to refImage
     
     # Run the C++ command if we need to generate the transform
@@ -120,6 +119,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
             os.remove(transformPath) # Clear out any old results
             
         cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/registerGeocamImage'
+        #cmdPath = 'build/registerGeocamImage'
         cmd = [cmdPath, refImagePath, testImagePath, transformPath]
         if debug:
             cmd.append('--debug')
@@ -168,6 +168,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
 #======================================================================================
 # Main interface function
 
+# TODO: User passes in estimatedMpp or we need sensor information!
 
 def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
                    refImagePath=None, referenceGeoTransform=None, debug=False, force=False):
@@ -181,7 +182,7 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
     # Set up paths in a temporary directory
     if not debug:
         workDir = tempfile.mkdtemp()
-    else:
+    else: # In debug mode, create a more permanent work location.
         workDir = os.path.splitext(imagePath)[0]
     if not os.path.exists(workDir):
         os.mkdir(workDir)
@@ -209,20 +210,26 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
         raise Exception('Failed to compute tranform!')
 
     # Convert the transform into a pixel-->Projected coordinate transform
-    geoTransform = convertTransformToGeo(tform, imagePath, refImagePath, referenceGeoTransform)
+    (imageToProjectedTransform, refImageToGdcTransform) = \
+            convertTransformToGeo(tform, imagePath, refImagePath, referenceGeoTransform)
 
     # For each input image inlier, generate the world coordinate.
-    geoInliers = [geoTransform.forward(x) for x in refInliers]
-    #print geoInliers
+    
+    gdcInliers = []
+    for pix in refInliers:
+        homogPixel    = numpy.array(list(pix) + [1], dtype='float64') # Homogenize the input point
+        gdcCoordinate = refImageToGdcTransform.dot(homogPixel)[0:2]    
+        gdcInliers.append(gdcCoordinate)
+    #print gdcInliers
 
-    return (geoTransform, confidence, imageInliers, geoInliers)
+    return (imageToProjectedTransform, confidence, imageInliers, gdcInliers)
 
 
 def test():
   '''Run a simple test to make sure the code runs'''
   
   register_image('/home/smcmich1/data/geocam_images/ISS030-E-254011.JPG', -7.5, 29.0, 400, '2012.04.21',
-                 refImagePath=None, referenceGeoTransform=None, debug=True, force=True)
+                 refImagePath=None, referenceGeoTransform=None, debug=True, force=False)
 
 # Simple test script
 if __name__ == "__main__":
