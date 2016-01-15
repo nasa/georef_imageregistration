@@ -106,7 +106,7 @@ def estimateGroundResolution(focalLength):
     return 0
 
 
-def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
+def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slowMethod=False):
     '''Call the C++ code to find the image alignment'''
     
     transformPath = workPrefix + '-transform.txt'
@@ -121,14 +121,16 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
         cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/registerGeocamImage'
         #cmdPath = 'build/registerGeocamImage'
         cmd = [cmdPath, refImagePath, testImagePath, transformPath]
-        if debug:
-            cmd.append('--debug')
-        print "command is "
-        print cmd
+        if debug: cmd.append('y')
+        else:     cmd.append('n')
+        if slowMethod: cmd.append('y')
+        else:          cmd.append('n')
+        #print "command is "
         #print cmd
         #os.system('build/registerGeocamImage '+ refImagePath+' '+testImagePath+' '+transformPath+' --debug')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
+        #print textOutput
     
     if not os.path.exists(transformPath):
         #raise Exception('Failed to compute transform!')
@@ -171,7 +173,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False):
 # TODO: User passes in estimatedMpp or we need sensor information!
 
 def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
-                   refImagePath=None, referenceGeoTransform=None, debug=False, force=False):
+                   refImagePath=None, referenceGeoTransform=None, debug=False, force=False, slowMethod=False):
     '''Attempts to geo-register the provided image.
        Returns a transform from image coordinates to projected meters coordinates.
        Also returns an evaluation of how likely the registration is to be correct.'''
@@ -204,7 +206,7 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
     # Try to align to the reference image
     # - The transform is from image to refImage
     (tform, confidence, imageInliers, refInliers) = \
-            alignImages(imagePath, refImagePath, workPrefix, force, debug)
+            alignImages(imagePath, refImagePath, workPrefix, force, debug, slowMethod)
 
     if (confidence == CONFIDENCE_NONE):
         raise Exception('Failed to compute tranform!')
@@ -229,7 +231,7 @@ def test():
   '''Run a simple test to make sure the code runs'''
   
   register_image('/home/smcmich1/data/geocam_images/ISS030-E-254011.JPG', -7.5, 29.0, 400, '2012.04.21',
-                 refImagePath=None, referenceGeoTransform=None, debug=True, force=False)
+                 refImagePath=None, referenceGeoTransform=None, debug=True, force=True, slowMethod=False)
 
 # Simple test script
 if __name__ == "__main__":

@@ -20,6 +20,9 @@ enum DetectorType {DETECTOR_TYPE_BRISK = 0,
                    DETECTOR_TYPE_SIFT  = 2,
                    DETECTOR_TYPE_AKAZE = 3};
 
+enum ModeType {MODE_FAST     = 0,
+               MODE_ACCURATE = 1};
+
 
 /// Write the transform parameters and the confidence to a file on disk
 bool writeOutput(const std::string &outputPath, const cv::Mat &transform,
@@ -222,8 +225,12 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   }
   if (detectorType == DETECTOR_TYPE_ORB)
   {
+    nfeatures         = 2000; // ORB is pretty fast to try more features
+    float scaleFactor = 1.2f; // 1.2 is  default
+    int nlevels       = 8; // 8 is default
     detector  = cv::ORB::create(nfeatures);
     extractor = cv::ORB::create(nfeatures);
+    printf("Using the ORB feature detector\n");
   }
   if (detectorType == DETECTOR_TYPE_SIFT)
   {
@@ -494,8 +501,8 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
                                 cv::Mat &transform,
                                 std::vector<cv::Point2f> &refInlierCoords, 
                                 std::vector<cv::Point2f> &matchInlierCoords,
+                                const ModeType mode,
                                 const std::string &debugFolder,
-
                                 bool debug)
 {
   // Try not to accept solutions with fewer outliers
@@ -505,10 +512,37 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
   int bestNumInliers = 0;
   int numInliers;
   
+  if (mode == MODE_FAST)
+  {
+    int kernelSize   = 5;
+    int detectorType = DETECTOR_TYPE_ORB;
+    printf("Attempting transform with kernel size = %d and detector type = %d\n",
+           kernelSize, detectorType);
+    numInliers = computeImageTransform(refImageIn, matchImageIn, transform, 
+                                       refInlierCoords, matchInlierCoords,
+                                       debugFolder,
+                                       kernelSize, static_cast<DetectorType>(detectorType), debug);
+    return numInliers;
+  }
+  if (mode == MODE_ACCURATE)
+  {
+    int kernelSize   = 5;
+    int detectorType = DETECTOR_TYPE_SIFT;
+    printf("Attempting transform with kernel size = %d and detector type = %d\n",
+           kernelSize, detectorType);
+    numInliers = computeImageTransform(refImageIn, matchImageIn, transform, 
+                                       refInlierCoords, matchInlierCoords,
+                                       debugFolder,
+                                       kernelSize, static_cast<DetectorType>(detectorType), debug);
+    return numInliers;
+  } 
+  printf("ERROR: Did not recognize the execution mode!");
+  return 0; 
+  
   // To improve run speed, this function is currently set up to try only a single
   //  parameter configuration.
   // - If this changes, we need to make sure that the best set of inliers make it to the output variables.
-  
+/*  
   // Keep trying transform parameter combinations until we get a good
   //   match as determined by the inlier count
   for (int kernelSize=5; kernelSize<6; kernelSize += 20)
@@ -543,6 +577,7 @@ int computeImageTransformRobust(const cv::Mat &refImageIn, const cv::Mat &matchI
   // Use the best transform we got
   transform = bestTransform;
   return bestNumInliers;
+*/
 }
 
 /// Try to estimate the accuracy of the computed registration
@@ -568,7 +603,7 @@ int main(int argc, char** argv )
   
   if (argc < 4)
   {
-    printf("usage: registerGeocamImage <Base map path> <New image path> <Output path> [debug]\n");
+    printf("usage: registerGeocamImage <Base map path> <New image path> <Output path> [debug (y or n)] [slow method? (y or n)]\n");
     return -1;
   }
   std::string refImagePath   = argv[1];
@@ -576,7 +611,17 @@ int main(int argc, char** argv )
   std::string outputPath     = argv[3];
   bool debug = false;
   if (argc > 4) // Set debug option
-    debug = true;
+  {
+    char lcase = tolower(argv[4][0]);
+    debug = ((lcase == 'y') || (lcase == '1'));
+  }
+  ModeType mode = MODE_FAST;
+  if (argc > 5) // Set debug option
+  {
+    char lcase = tolower(argv[5][0]);
+    if ((lcase == 'y') || (lcase == '1'))
+      mode = MODE_ACCURATE;
+  }
   
   // TODO: Experiment with color processing
   const int LOAD_GRAY = 0;
@@ -607,7 +652,7 @@ int main(int argc, char** argv )
   std::vector<cv::Point2f> refInlierCoords, matchInlierCoords;
   int numInliers = computeImageTransformRobust(refImageIn, matchImageIn, transform, 
                                                refInlierCoords, matchInlierCoords,
-                                               debugFolder, debug);
+                                               mode, debugFolder, debug);
   if (!numInliers)
   {
     printf("Failed to compute image transform!\n");
