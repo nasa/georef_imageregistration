@@ -40,10 +40,10 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
     # Make a transform from ref pixel to GDC using metadata on disk
     refStats     = IrgGeoFunctions.getImageGeoInfo(refImagePath, False)
     (minLon, maxLon, minLat, maxLat) = refStats['lonlat_bounds']
-    xScale = (maxLon - minLon) / refStats['image_size'][1]
-    yScale = (maxLat - minLat) / refStats['image_size'][0]
+    xScale = (maxLon - minLon) / refStats['image_size'][0]
+    yScale = (maxLat - minLat) / refStats['image_size'][1]
     refPixelToGdcTransform = numpy.array([[xScale, 0,      minLon],
-                                          [0,      yScale, minLat],
+                                          [0,      -yScale, maxLat],
                                           [0 ,     0,      1     ]])
 
     # Generate a list of point pairs
