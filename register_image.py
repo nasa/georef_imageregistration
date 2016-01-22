@@ -25,6 +25,50 @@ CONFIDENCE_HIGH = 2
 
 CONFIDENCE_STRINGS = ['NONE', 'LOW', 'HIGH']
 
+def getPixelToGdcTransform(imagePath, pixelToProjectedTransform=None):
+    '''Returns a pixel to GDC transform.
+       The input image must either be a nicely georegistered image from Earth Engine
+       or a pixel to projected coordinates transform must be provided.'''
+
+    stats  = IrgGeoFunctions.getImageGeoInfo(imagePath, False)
+    width  = stats['image_size'][0]
+    height = stats['image_size'][1]
+    
+    if pixelToProjectedTransform:
+        # Have image to projected transform, convert it to an image to GDC transform.
+        
+        imagePoints = []
+        gdcPoints   = []
+        
+        # Loop through a spaced out grid of pixels in the image
+        pointPixelSpacing = (width + height) / 20 # Results in about 100 points
+        for r in range(0, width, pointPixelSpacing):
+            for c in range(0, height, pointPixelSpacing):
+                # This pixel --> projected coords --> lonlat coord
+                thisPixel           = numpy.array([float(c), float(r)])
+                projectedCoordinate = pixelToProjectedTransform.forward(thisPixel)
+                gdcCoordinate       = transform.metersToLatLon(projectedCoordinate)
+        
+                imagePoints.append(thisPixel)
+                gdcPoints.append(gdcCoordinate)
+        # Solve for a transform with all of these point pairs
+        pixelToGdcTransform = transform.getTransform(numpy.asarray(gdcPoints),
+                                                     numpy.asarray(imagePoints))
+        
+    else: # Using a reference image from EE which will have nice bounds.
+        # Make a transform from ref pixel to GDC using metadata on disk
+        (minLon, maxLon, minLat, maxLat) = stats['lonlat_bounds']
+        xScale = (maxLon - minLon) / width
+        yScale = (maxLat - minLat) / height
+        transformMatrix = numpy.array([[xScale,  0,      minLon],
+                                       [0,      -yScale, maxLat],
+                                       [0 ,      0,      1     ]])
+        pixelToGdcTransform = transform.LinearTransform(transformMatrix)
+    
+    return pixelToGdcTransform
+
+
+
 def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransform=None):
     '''Converts an image-to-image homography to the ProjectiveTransform
        class used elsewhere in geocam.
@@ -37,31 +81,27 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
 
     newImageSize = ImageFetcher.miscUtilities.getImageSize(newImagePath)
 
-    # Make a transform from ref pixel to GDC using metadata on disk
-    refStats     = IrgGeoFunctions.getImageGeoInfo(refImagePath, False)
-    (minLon, maxLon, minLat, maxLat) = refStats['lonlat_bounds']
-    xScale = (maxLon - minLon) / refStats['image_size'][0]
-    yScale = (maxLat - minLat) / refStats['image_size'][1]
-    refPixelToGdcTransform = numpy.array([[xScale, 0,      minLon],
-                                          [0,      -yScale, maxLat],
-                                          [0 ,     0,      1     ]])
+    # Get a pixel to GDC transform for the reference image
+    refPixelToGdcTransform = getPixelToGdcTransform(refImagePath, refImageGeoTransform)
 
     # Generate a list of point pairs
     imagePoints = []
     worldPoints = []
     
-    # Loop through a grid of pixels in the new image
+    # Loop through an evenly spaced grid of pixels in the new image
     # - For each pixel, compute the desired output coordinate
     pointPixelSpacing = (newImageSize[0] + newImageSize[1]) / 20 # Results in about 100 points
     for r in range(0, newImageSize[0], pointPixelSpacing):
         for c in range(0, newImageSize[1], pointPixelSpacing):
-            thisPixel = numpy.array([float(c), float(r)])
+            # Get pixel in new image and matching pixel in the reference image
+            thisPixel       = numpy.array([float(c), float(r)])
             pixelInRefImage = imageToRefTransform.forward(thisPixel)
 
+            # Compute the location of this pixel in the projected coordinate system
+            #  used by the transform.py file.
             if (not refImageGeoTransform):
                 # Use the geo information of the reference image
-                homogPixel = numpy.array(list(pixelInRefImage) + [1], dtype='float64') # Homogenize the input point
-                gdcCoordinate       = refPixelToGdcTransform.dot(homogPixel)[0:2]
+                gdcCoordinate       = refPixelToGdcTransform.forward(pixelInRefImage)
                 projectedCoordinate = transform.lonLatToMeters(gdcCoordinate)
             else: # Use the user-provided transform
                 projectedCoordinate = refImageGeoTransform.forward(pixelInRefImage)
@@ -75,9 +115,10 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
     testImageToProjectedTransform = transform.getTransform(numpy.asarray(worldPoints),
                                                            numpy.asarray(imagePoints))
     
-    #print outputTransform   
+    #print refPixelToGdcTransform
+    #print testImageToProjectedTransform
     #for i, w in zip(imagePoints, worldPoints):
-    #    print str(i) + ' --> ' + str(w) + ' <--> ' + str(outputTransform.forward(i))
+    #    print str(i) + ' --> ' + str(w) + ' <--> ' + str(testImageToProjectedTransform.forward(i))
     
     return (testImageToProjectedTransform, refPixelToGdcTransform)
 
@@ -219,8 +260,7 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
     
     gdcInliers = []
     for pix in refInliers:
-        homogPixel    = numpy.array(list(pix) + [1], dtype='float64') # Homogenize the input point
-        gdcCoordinate = refImageToGdcTransform.dot(homogPixel)[0:2]    
+        gdcCoordinate = refImageToGdcTransform.forward(pix)
         gdcInliers.append(gdcCoordinate)
     #print gdcInliers
 

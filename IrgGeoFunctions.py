@@ -113,7 +113,7 @@ def getImageGeoInfo(imagePath, getStats=True):
     # Get the size in pixels
     imageSizeLine = IrgStringFunctions.getLineAfterText(textOutput, 'Size is ')
     sizeVals      = imageSizeLine.split(',')
-    outputDict['image_size'] = (int(sizeVals[0]), int(sizeVals[1]))
+    outputDict['image_size'] = (int(sizeVals[0]), int(sizeVals[1])) #cols, rows
 
     # Get origin location and pixel size    
     originLine    = IrgStringFunctions.getLineAfterText(textOutput, 'Origin = ')
