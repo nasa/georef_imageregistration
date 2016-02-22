@@ -13,7 +13,7 @@ import IrgStringFunctions, IrgGeoFunctions
 #sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
 from geocamTiePoint import transform
-from geocamTiePoint import settings
+from django.conf import settings
 
 #======================================================================================
 # Supporting functions
