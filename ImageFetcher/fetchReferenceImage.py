@@ -166,14 +166,14 @@ def fetchSensorSeason(sensorName, bounds, date, bigRange=False):
         return collection
     
     
-    # Otherwise grab nearby portions of the year
+    # Otherwise grab nearby portions of the year across several years
     fullCollection = None    
     monthRange = 3.0
-    for i in [-2, -1, 0, 1, 2]:
+    for i in [-2, -1, 0, 1, 2]: # Year offsets
 
         yearDate   = date.advance(-1.0*i, 'year')
-        dateStart  = yearDate.advance(-2.0*monthRange, 'month')
-        dateEnd    = yearDate.advance(monthRange,  'month')
+        dateStart  = yearDate.advance(-1.0*monthRange, 'month')
+        dateEnd    = yearDate.advance(     monthRange,  'month')
         collection = ee.ImageCollection(sensorName).filterDate(dateStart, dateEnd).filterBounds(bounds)
         if fullCollection:
             fullCollection = fullCollection.merge(collection)
@@ -229,7 +229,7 @@ def findClearImage(bounds, date):
         requestString = bestSensor['name']
         # We did not get as many images as we wanted, but we still got something with one sensor
         #refImageCollection = ee.ImageCollection(sensorStringNames[bestSensor]).filterDate(dateStart, dateEnd).filterBounds(bounds)
-        refImageCollection = fetchSensorSeason(requestString, bounds, date, True)
+        refImageCollection = fetchSensorSeason(requestString, bounds, date, bigRange=True)
         composite = ee.Algorithms.Landsat.simpleComposite(refImageCollection, asFloat=True)
         return (composite, bestSensor)
         
@@ -265,7 +265,7 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
 
     MIN_IMAGE_SIZE  = 2000  # Don't fetch an image smaller than this
     MAX_IMAGE_SIZE  = 3000
-    MAX_ERROR_RANGE = 100000 # 50km possible error handled byt his amount
+    MAX_ERROR_RANGE = 100000 # 50km possible error handled by this amount
     
     # Default calculation is based on the max error range, but it is capped by pixel size
     bufferSizeMeters = MAX_ERROR_RANGE / 2.0
