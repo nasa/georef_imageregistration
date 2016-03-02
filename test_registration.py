@@ -15,7 +15,6 @@ from __builtin__ import True
 
 # from geocamTiePoint import transform
 
-
 class TestInstance:
     '''Class representing a single test case'''
     
