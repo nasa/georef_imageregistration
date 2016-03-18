@@ -1,0 +1,112 @@
+
+DROP TABLE Camera;
+CREATE TABLE Camera(
+  MISSION TEXT    NOT NULL,
+  ROLL    TEXT    NOT NULL,
+  FRAME   TEXT    NOT NULL,
+  FCLT    INTEGER,
+  CAMERA  TEXT,
+  PRIMARY KEY (MISSION, ROLL, FRAME)
+);
+.mode tabs
+.headers on
+.import "/home/smcmich1/db_snapshot_copy/TableCamera.tsv" Camera
+
+DROP TABLE Frames;
+CREATE TABLE Frames(
+  EXPO    TEXT,
+  STEO    TEXT,
+  CAPTION TEXT,
+  TILT    TEXT,
+  DIR     TEXT,
+  ONC     TEXT,
+  ROLL    TEXT    NOT NULL,
+  JNC     TEXT,
+  PTIME   TEXT,
+  PDATE   TEXT,
+  MISSION TEXT    NOT NULL,
+  FRAME   TEXT    NOT NULL,
+  ORB     INTEGER,
+  CLDP    INTEGER,
+  AZI     INTEGER,
+  ALT     INTEGER,
+  IMAGE   INTEGER,
+  ELEV    INTEGER,
+  FCLT    INTEGER,
+  LAT     REAL,
+  LON     REAL,
+  NLAT    REAL,
+  NLON    REAL,
+  CAMERA  TEXT,
+  FILM    TEXT,
+  GEON    TEXT,
+  FEAT    TEXT,
+  FILMMS  TEXT,
+  PRIMARY KEY (MISSION, ROLL, FRAME)
+);
+.mode tabs
+.headers on
+.import "/home/smcmich1/db_snapshot_copy/TableFrames.tsv" Frames
+
+DROP TABLE Images;
+CREATE TABLE Images(
+  MISSION   TEXT    NOT NULL,
+  ROLL      TEXT    NOT NULL,
+  FRAME     TEXT    NOT NULL,
+  VERSION   TEXT,
+  DIRECTORY TEXT,
+  FILENAME  TEXT,
+  WIDTH     INTEGER,
+  HEIGHT    INTEGER,
+  ANNOTATED TEXT,
+  CROPPED   TEXT,
+  PURPOSE   TEXT,
+  COMMENTS  TEXT,
+  FILESIZE  INTEGER,
+  PRIMARY KEY (DIRECTORY, FILENAME)
+);
+.mode tabs
+.headers on
+.import "/home/smcmich1/db_snapshot_copy/TableImages.tsv" Images
+
+DROP TABLE Nadir;
+CREATE TABLE Nadir(
+  MISSION   TEXT    NOT NULL,
+  ROLL      TEXT    NOT NULL,
+  FRAME     TEXT    NOT NULL,
+  PDATE     TEXT,
+  PTIME     TEXT,
+  LAT       REAL,
+  LON       REAL,
+  ALT       INTEGER,
+  AZI       INTEGER,
+  ELEV      INTEGER,
+  PRIMARY KEY (MISSION, ROLL, FRAME)
+);
+.mode tabs
+.headers on
+.import "/home/smcmich1/db_snapshot_copy/TableNadir.tsv" Nadir
+
+
+
+
+
+
+
+DROP TABLE Captions;
+CREATE TABLE Captions(
+  MISSION   TEXT    NOT NULL,
+  ROLL      TEXT    NOT NULL,
+  FRAME     TEXT    NOT NULL,
+  CAPTIONS  TEXT,
+  PRIMARY KEY (MISSION, ROLL, FRAME)
+);
+.mode tabs
+.headers on
+.import "/home/smcmich1/db_snapshot_copy/TableCaptions.tsv" Captions
+
+
+#CREATE TABLE PublicFeatures(
+#);
+#CREATE TABLE EFS(
+#);
