@@ -44,7 +44,11 @@ set(OpenCV_FOUND True)
 set(OpenCV_LIBS "${OPENCV_INSTALL_DIR}/lib/libopencv_core.so" 
                 "${OPENCV_INSTALL_DIR}/lib/libopencv_highgui.so" 
                 "${OPENCV_INSTALL_DIR}/lib/libopencv_stitching.so"
-                "${OPENCV_INSTALL_DIR}/lib/libopencv_features2d.so")
+                "${OPENCV_INSTALL_DIR}/lib/libopencv_features2d.so"
+                "${OPENCV_INSTALL_DIR}/lib/libopencv_imgproc.so"
+                "${OPENCV_INSTALL_DIR}/lib/libopencv_imgcodecs.so"
+                "${OPENCV_INSTALL_DIR}/lib/libopencv_calib3d.so"
+                "${OPENCV_INSTALL_DIR}/lib/libopencv_xfeatures2d.so")
 set(OpenCV_INCLUDE_DIR "${OPENCV_INSTALL_DIR}/include"
                        "${OPENCV_INSTALL_DIR}/include/opencv"
                        "${OPENCV_INSTALL_DIR}/include/opencv2")
@@ -68,7 +72,7 @@ target_link_libraries( registerGeocamImage ${OpenCV_LIBS})
 
 
 
-add_executable( stereoTest stereo_test.cpp )
-target_link_libraries( stereoTest ${OpenCV_LIBS})
+
+
 
 
