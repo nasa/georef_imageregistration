@@ -1,4 +1,3 @@
-
 The Image Registration module is intended to help automate the process of registering
 images to the correct location on the ground.  It consists of two main components:
 A - Fetching RGB satellite imagery of Earth to use for comparison.
@@ -16,11 +15,10 @@ Step B is performed using a C++ program relying on OpenCV 3.0
 To install, follow these steps:
 1 - Build OpenCV 3.0 with the contributor modules package.
 	(follow tutorial here: http://www.pyimagesearch.com/2015/06/22/install-opencv-3-0-and-python-2-7-on-ubuntu/)
-  - I used the following CMake line to do this:
-    cmake ../CMakeLists.txt -DOPENCV_EXTRA_MODULES_PATH=/home/smcmich1/repo/opencv_contrib/modules -DBUILD_opencv_apps=OFF -DBUILD_opencv_gpu=OFF -DBUILD_opencv_video=OFF -DBUILD_opencv_ts=OFF -DBUILD_opencv_java=OFF -DWITH_FFMPEG=OFF -DWITH_DSHOW=OFF -DWITH_GSTREAMER=OFF -DBUILD_ANDROID_EXAMPLES=OFF -DBUILD_DOCS=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_WITH_DEBUG_INFO=OFF -DWITH_OPENGL=OFF
-
-	NOTE: make sure to use the cmake command in the tutorials. The one above doesn't work!
-		  And make sure to do "make install" as well as "make"!!!
+  - Use the below cmake (assumes opencv_contrib is in /usr/local/lib/opencv_contrib)
+	sudo cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=/usr/local -D INSTALL_C_EXAMPLES=ON -D INSTALL_PYTHON_EXAMPLES=ON -D OPENCV_EXTRA_MODULES_PATH=/usr/local/lib/opencv_contrib/modules -D BUILD_EXAMPLES=ON ..
+	And make sure to do "make install" as well as "make"!!!
+		  
   - Building OpenCV may not go smoothly, so we will have to update this file with more specific instructions
     as we go.
   - Sample install instructions here may be useful: http://www.pyimagesearch.com/2015/06/22/install-opencv-3-0-and-python-2-7-on-ubuntu/
