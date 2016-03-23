@@ -2,23 +2,33 @@
 
 
 import os, sys
+import subprocess
 import sqlite3
 #from pysqlite2 import dbapi2 as sqlite3
 
-DB_PATH = '/home/smcmich1/db.sqlt'
-DCRAW_PATH = '/home/smcmich1/repo/dcraw/dcraw'
+import registration_common
+import register_image
+
+# Hard coded paths!
+DB_PATH          = '/home/smcmich1/db.sqlt'
+DCRAW_PATH       = '/home/smcmich1/repo/dcraw/dcraw'
 RAW_IMAGE_FOLDER = '/media/network/ImagesDrop/RawESC'
+TEMP_FOLDER      = '/home/smcmich1/temp_images'
+
+
+# TODO: Move some of these functions up
 
 def getFrameString(mission, roll, frame):
     return (mission +', '+ roll +', '+ frame)
 
 
+# TODO: Play around with this to get the best possible output images
 def convertRawFileToTiff(rawPath, outputPath):
     '''Convert one of the .raw image formats to a .tif format using
        the open-source dcraw software.'''
     if not os.path.exists(rawPath):
         raise Exception('Raw image file does not exist: ' + rawPath)
-    cmd = DCRAW_PATH + ' -c -o 1 -T ' + rawPath + ' > ' + outputPath
+    cmd = DCRAW_PATH + ' +M -W -c -o 1 -T ' + rawPath + ' > ' + outputPath
     print cmd
     os.system(cmd)
     if not os.path.exists(outputPath):
@@ -30,9 +40,9 @@ def chooseSubFolder(frame, cutoffList, pathList):
     numVals = len(cutoffList)
     if not (len(pathList)-1) == numVals:
         raise Exception('Bad cutoff list!')
-    for i in range(0,numVals-1):
+    for i in range(0,numVals):
         if frame < cutoffList[i]:
-            return pathList[0]
+            return pathList[i]
     return pathList[-1]
 
 def getRawPath(mission, roll, frame):
@@ -129,7 +139,50 @@ def getRawPath(mission, roll, frame):
     fullPath = os.path.join(RAW_IMAGE_FOLDER, subPath)
     return fullPath
 
+def getSensorSize(cameraCode):
+    '''Returns sensor (width, height) in mm given the two letter
+       camera code from the database.'''
+    if cameraCode == 'E2':
+        return (27.6, 18.5)
+    if cameraCode == 'E3':
+        return (27.6, 18.5)
+    if cameraCode == 'E4':
+        return (27.6, 18.5)
+    if cameraCode == 'N1':
+        return (23.6, 15.5)
+    if cameraCode == 'N2':
+        return (23.7, 15.7)
+    if cameraCode == 'N3':
+        return (36.0, 23.9)
+    if cameraCode == 'N4':
+        return (35.9, 24.0)
+    if cameraCode == 'N5':
+        return (36.0, 23.9)
+    if cameraCode == 'N6':
+        return (36.0, 23.9)
+    if cameraCode == 'N7':
+        return (35.9, 24.0)
+    print 'Warning: Missing sensor code for camera ' + cameraCode
+    return (0,0)
 
+
+def getRawImageSize(rawPath):
+    '''Returns the size in pixels of the raw camera file'''
+
+    cmd = [DCRAW_PATH, '-i',  '-v', rawPath]
+    print cmd
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+    lines = textOutput.split('\n')
+    for line in lines:
+        if 'Full size' not in line:
+            continue
+        parts  = line.split()
+        width  = int(parts[2])
+        height = int(parts[4])
+        return (width, height)
+    raise Exception('Unable to determine size of image: ' + rawPath)
+    
 
 class FrameInfo(object):
     '''Class that contains the metadata for one frame.'''
@@ -153,9 +206,10 @@ class FrameInfo(object):
         self.camera          = None
         self.imageList       = []
         self.rawPath         = None
-        self.bestImage       = None
         self.width           = 0
         self.height          = 0
+        self.sensorHeight    = 0
+        self.sensorWidth     = 0
         
     def __str__(self):
         '''Print out the values'''
@@ -200,6 +254,13 @@ class FrameInfo(object):
             self.tilt = '70'
         self.tilt = float(self.tilt)
        
+        # Convert the date to 'YYYY.MM.DD' format that the image fetcher wants
+        # - TODO: Use a standardized format!
+        self.date = self.date[0:4] + '.' + self.date[4:6] + '.' +  self.date[6:8]
+       
+        # Get the sensor size
+        (self.sensorWidth, self.sensorHeight) = getSensorSize(self.camera)
+       
         #if not self.isGoodAlignmentCandidate():
         #    return # In this case don't bother finding the images
     
@@ -225,22 +286,25 @@ class FrameInfo(object):
             height    = int(row[7])
             numPixels = width*height
             if numPixels > bestNumPixels:
-                self.bestImage = path
                 self.width     = width
                 self.height    = height
         
         # Try to find an associated RAW file
         thisRaw = getRawPath(self.mission, self.roll, self.frame)
-        print thisRaw
         if os.path.exists(thisRaw):
-            self.bestImage = thisRaw
             self.rawPath = thisRaw
+        else:
+            print 'Did not find: ' + thisRaw
         
+        # TODO: Handle images with no RAW data
+        # Get the image size
+        if self.rawPath:
+            (self.width, self.height) = getRawImageSize(self.rawPath)
         
     # These functions check individual metadata parameters to
     #  see if the image is worth trying to process.
     def isExposureGood(self):
-        return (self.exposure == 'N')
+        return (self.exposure == 'N') or (self.exposure == '')
     def isTiltGood(self):
         MAX_TILT_ANGLE = 50
         return (self.tilt < MAX_TILT_ANGLE)
@@ -253,7 +317,7 @@ class FrameInfo(object):
         return (self.isExposureGood() and
                 self.isTiltGood() and
                 self.isCloudPercentageGood() and
-                self.bestImage)
+                self.rawPath) # Later, work with non-raw images.
 
     
 
@@ -263,18 +327,57 @@ def main():
 
 def test():
 
-    db = sqlite3.connect(DB_PATH)
+    # Open the database
+    print 'Initializing database connection...'
+    db     = sqlite3.connect(DB_PATH)
     cursor = db.cursor()
-        
+    
+    print 'Fetching frame information...'
     frame = FrameInfo()
     #frame.loadFromDb(cursor, 'ISS001', '347', '24')
-    frame.loadFromDb(cursor, 'ISS026', 'E', '29592')
+    #frame.loadFromDb(cursor, 'ISS026', 'E', '29592')
+    
+    frame.loadFromDb(cursor, 'ISS043', 'E', '91884') # Warp trouble?
+    #frame.loadFromDb(cursor, 'ISS043', 'E', '93251') # Works poorly on snow!
+    #frame.loadFromDb(cursor, 'ISS043', 'E', '122588') # Good only on lake
+    #frame.loadFromDb(cursor, 'ISS044', 'E', '868')   # Should be better
+    #frame.loadFromDb(cursor, 'ISS044', 'E', '1998') # Tough image
+    
+    if not frame.isGoodAlignmentCandidate():
+        print 'This image is not a valid alignment candidate:'
+        print frame
+        return -1
+    
     print frame
     
+    # TODO: Make sure everything properly handles existing data!
+    
+    # We can't operate on the RAW file, so convert it to TIF.
+    print 'Converting RAW to TIF...'
+    tempName = 'raw_converted.tif'
+    tempPath = os.path.join(TEMP_FOLDER, tempName)
+    convertRawFileToTiff(frame.rawPath, tempPath)
+    
+    # Estimate the pixel resolution on the ground
+    metersPerPixel = registration_common.estimateGroundResolution(frame.focalLength,
+                            frame.width, frame.height, frame.sensorWidth, frame.sensorHeight,
+                            frame.nadirLon, frame.nadirLat, frame.altitude,
+                            frame.centerLon, frame.centerLat)
+    print 'Meters per pixel = ' + str(metersPerPixel)
+    
+    # Try to register the image
+    print 'Attempting to register image...'
+    register_image.register_image(tempPath,
+                                  frame.centerLon, frame.centerLat,
+                                  metersPerPixel, frame.date,
+                                  refImagePath=None, debug=True, force=False)
+
+    # Clean up
+    
+    print 'Closing database connection...'
     db.close()
     
-
-    print 'TEST'
+    print 'Finished running backlog test'
 
 
 # Simple test script

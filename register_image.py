@@ -85,7 +85,7 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
 
 # TODO: User passes in estimatedMpp or we need sensor information!
 
-def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
+def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
                    refImagePath=None, referenceGeoTransform=None, debug=False, force=False, slowMethod=False):
     '''Attempts to geo-register the provided image.
        Returns a transform from image coordinates to projected meters coordinates.
@@ -107,19 +107,42 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
     
     if not refImagePath:
         # Fetch the reference image
-        estimatedMpp = estimateGroundResolution(focalLength)
-        refImagePath = os.path.join(workDir, 'ref_image.tif')
+        refImagePath    = os.path.join(workDir, 'ref_image.tif')
+        refImageLogPath = os.path.join(workDir, 'ref_image_info.tif')
         if not os.path.exists(refImagePath):
-            ImageFetcher.fetchReferenceImage.fetchReferenceImage(centerLon, centerLat,
-                                                                 estimatedMpp, imageDate, refImagePath)
+            (percentValid, refMetersPerPixel) = ImageFetcher.fetchReferenceImage.fetchReferenceImage(
+                                                    centerLon, centerLat,
+                                                    metersPerPixel, imageDate, refImagePath)
+            # Log the metadata
+            handle = open(refImageLogPath, 'w')
+            handle.write(str(percentValid) + '\n' + str(refMetersPerPixel))
+            handle.close()
+        else:
+            # Load the reference image metadata that we logged earlier
+            handle   = open(refImageLogPath, 'r')
+            fileText = handle.read()
+            handle.close()
+            lines = fileText.split('\n')
+            percentValid      = float(lines[0])
+            refMetersPerPixel = float(lines[1])
     else: # The user provided a reference image
+        refMetersPerPixel = metersPerPixel # In this case the user must provide an accurate value!
         if not os.path.exists(refImagePath):
             raise Exception('Provided reference image path does not exist!')
+
+    # TODO: Reduce the input image to the resolution of the reference image!
+    # The reference image may be lower resolution than the input image, in which case
+    #  we will need to perform image alignment at the lower reference resolution.
+    inputScaling = metersPerPixel / refMetersPerPixel
+
+    print 'metersPerPixel    = ' + str(metersPerPixel)
+    print 'refMetersPerPixel = ' + str(refMetersPerPixel)
+    print 'inputScaling      = ' + str(inputScaling)
 
     # Try to align to the reference image
     # - The transform is from image to refImage
     (tform, confidence, imageInliers, refInliers) = \
-            registration_common.alignImages(imagePath, refImagePath, workPrefix, force, debug, slowMethod)
+            registration_common.alignScaledImages(imagePath, refImagePath, inputScaling, workPrefix, force, debug, slowMethod)
 
     if (confidence == registration_common.CONFIDENCE_NONE):
         raise Exception('Failed to compute tranform!')
@@ -140,10 +163,18 @@ def register_image(imagePath, centerLon, centerLat, focalLength, imageDate,
 
 
 def test():
-  '''Run a simple test to make sure the code runs'''
+    '''Run a simple test to make sure the code runs'''
   
-  register_image('/home/smcmich1/data/geocam_images/ISS030-E-254011.JPG', -7.5, 29.0, 400, '2012.04.21',
-                 refImagePath=None, referenceGeoTransform=None, debug=True, force=True, slowMethod=False)
+    #register_image('/home/smcmich1/data/geocam_images/ISS030-E-254011.JPG', -7.5, 29.0, 6.7, '2012.04.21',
+    #               refImagePath=None, referenceGeoTransform=None, debug=True, force=True, slowMethod=False)
+    
+    #register_image('/home/smcmich1/data/geocam_images/ISS013-E-6881.JPG',-74.1,  22.7, 10.7, '2006.04.12',
+    #              refImagePath=None, referenceGeoTransform=None, debug=True, force=True, slowMethod=False)
+    
+    # Fails!
+    #register_image('/home/smcmich1/data/geocam_images/ISS012-E-19064.JPG',-71.0,  41.5, 10.2, '2006.03.04',
+    #              refImagePath=None, referenceGeoTransform=None, debug=True, force=True, slowMethod=False)
+
 
 # Simple test script
 if __name__ == "__main__":

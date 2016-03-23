@@ -1,9 +1,19 @@
 
 import os
 import sys
+import math
 import subprocess
 import traceback
 import json
+import numpy
+import IrgGeoFunctions
+
+#basepath    = os.path.abspath(sys.path[0]) # Scott debug
+#sys.path.insert(0, basepath + '/../geocamTiePoint')
+#sys.path.insert(0, basepath + '/../geocamUtilWeb')
+
+from geocamTiePoint import transform
+from django.conf import settings
 
 # These codes are used to define the confidence in the detected image registration
 CONFIDENCE_NONE = 0
@@ -13,28 +23,52 @@ CONFIDENCE_HIGH = 2
 CONFIDENCE_STRINGS = ['NONE', 'LOW', 'HIGH']
 
 
-def estimateGroundResolution(focalLength):
+#def estimateGroundResolution(focalLength):
+#    if not focalLength: # Guess a low resolution for a zoomed out image
+#        return 150
+#    
+#    # Based on all the focal lengths we have seen so far
+#    if focalLength <= 50:
+#        return 200
+#    if focalLength <= 110:
+#        return 80
+#    if focalLength <= 180:
+#        return 55
+#    if focalLength <= 250:
+#        return 30
+#    if focalLength <= 340:
+#        return 25
+#    if focalLength <= 400:
+#        return 20
+#    if focalLength <= 800:
+#        return 10
+#    return 0
+
+def estimateGroundResolution(focalLength, width, height, sensorWidth, sensorHeight,
+                             stationLon, stationLat, stationAlt, centerLon, centerLat):
     '''Estimates a ground resolution in meters per pixel using the focal length.'''
     
-    if not focalLength: # Guess a low resolution for a zoomed out image
-        return 150
+    # TODO: Use the angle to get a more accurate computation!
+    # Divide by four since it is half the distance squared
+    sensorDiag = math.sqrt(sensorWidth*sensorWidth/4 + sensorHeight*sensorHeight/4)
+    pixelDiag  = math.sqrt(width*width/4 + height*height/4)
+
+    angle = math.atan2(sensorDiag, focalLength)
     
-    # Based on all the focal lengths we have seen so far
-    if focalLength <= 50:
-        return 200
-    if focalLength <= 110:
-        return 80
-    if focalLength <= 180:
-        return 55
-    if focalLength <= 250:
-        return 30
-    if focalLength <= 340:
-        return 25
-    if focalLength <= 400:
-        return 20
-    if focalLength <= 800:
-        return 10
-    return 0
+    NAUTICAL_MILES_TO_METERS = 1852.0
+    distance = stationAlt * NAUTICAL_MILES_TO_METERS
+    groundDiag = math.tan(angle) * distance
+
+    print 'sensorDiag = ' + str(sensorDiag)
+    print 'angle      = ' + str(angle)
+    print 'distance   = ' + str(distance)
+    print 'groundDiag = ' + str(groundDiag)
+    print 'pixelDiag  = ' + str(pixelDiag)
+        
+    pixelSize = groundDiag / pixelDiag # Meters / pixels
+    return pixelSize
+    
+    
 
 
 # This function is copied from the NGT Tools repo!    
@@ -153,7 +187,8 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slo
     if (not os.path.exists(transformPath) or force):
         if os.path.exists(transformPath):
             os.remove(transformPath) # Clear out any old results
-            
+        
+        print 'Running C++ image alignment tool...'
         cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/registerGeocamImage'
         #cmdPath = 'build/registerGeocamImage'
         cmd = [cmdPath, refImagePath, testImagePath, transformPath]
@@ -161,15 +196,15 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slo
         else:     cmd.append('n')
         if slowMethod: cmd.append('y')
         else:          cmd.append('n')
-        #print "command is "
-        #print cmd
+        print "command is "
+        print cmd
         #os.system('build/registerGeocamImage '+ refImagePath+' '+testImagePath+' '+transformPath+' --debug')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
-        #print textOutput
+        print textOutput
     
     if not os.path.exists(transformPath):
-        #raise Exception('Failed to compute transform!')
+        raise Exception('Failed to compute transform!')
         tform = [1, 0, 0, 0, 1, 0, 0, 0, 1]
         confidence = CONFIDENCE_NONE
         return (tform, confidence)
@@ -201,6 +236,47 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slo
     #print testInliers
     
     return (tform, confidence, testInliers, refInliers)
+
+
+def alignScaledImages(testImagePath, refImagePath, testImageScaling, workPrefix, force, debug=False, slowMethod=False):
+    '''Align a possibly higher resolution input image with a reference image.
+       This call handles the fact that registration should be performed at the same resolution.'''
+    
+    # If the scale is within this amount, don't bother rescaling.
+    SCALE_TOLERANCE = 0.10
+    if abs(testImageScaling - 1.0) < SCALE_TOLERANCE:
+        # In this case just use the lower level function
+        return alignImages(testImagePath, refImagePath, workPrefix, force, debug, slowMethod)
+
+    
+    # Generate a scaled version of the input image
+    scaledImagePath = workPrefix + '-scaledInputImage.tif'
+    outPercentage = str(testImageScaling*100.0)
+    cmd = 'gdal_translate -outsize ' + outPercentage +'% ' + outPercentage +'% '+ testImagePath +' '+ scaledImagePath
+    print cmd
+    os.system(cmd)
+    if not os.path.exists(scaledImagePath):
+        raise Exception('Failed to rescale image with command:\n' + cmd)
+    
+    # Call alignment with the scaled version
+    (scaledTform, confidence, scaledImageInliers, refInliers) = \
+            alignImages(scaledImagePath, refImagePath, workPrefix, force, debug, slowMethod)
+    
+    # De-scale the output transform so that it applies to the input sized image.
+    testInliers = []
+    for pixel in scaledImageInliers:
+        testInliers.append( (pixel[0]/testImageScaling, pixel[1]/testImageScaling) )
+    print 'scaled tform = \n' + str(scaledTform)
+    tform = scaledTform
+    for i in [0, 1, 3, 4, 6, 7]: # Scale the six coefficient values
+        tform[i] = tform[i] * testImageScaling
+    print 'tform = \n' + str(tform)
+
+    if not debug: # Clean up the scaled image
+        os.remove(scaledImagePath)
+
+    return (tform, confidence, testInliers, refInliers)
+
 
 
 def logRegistrationResults(outputPath, pixelTransform, confidence,
