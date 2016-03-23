@@ -263,18 +263,25 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     #DESIRED_IMAGE_SIZE = 2000
     #bufferSizeMeters = (DESIRED_IMAGE_SIZE / 2.0) * metersPerPixel
 
+    # Cap the requested image resolution at the resolution of the input images.
+    # - TODO: Vary this with the data source that is used.
+    BEST_MPP = 25
+    mppToUse = metersPerPixel
+    if mppToUse < BEST_MPP:
+        mppToUse = BEST_MPP
+
     MIN_IMAGE_SIZE  = 2000  # Don't fetch an image smaller than this
     MAX_IMAGE_SIZE  = 3000
     MAX_ERROR_RANGE = 100000 # 50km possible error handled by this amount
     
     # Default calculation is based on the max error range, but it is capped by pixel size
     bufferSizeMeters = MAX_ERROR_RANGE / 2.0
-    estPixelSize     = MAX_ERROR_RANGE / metersPerPixel
+    estPixelSize     = MAX_ERROR_RANGE / mppToUse
     if estPixelSize < MIN_IMAGE_SIZE:
-        bufferSizeMeters = (MIN_IMAGE_SIZE*metersPerPixel) / 2.0
+        bufferSizeMeters = (MIN_IMAGE_SIZE*mppToUse) / 2.0
     if estPixelSize > MAX_IMAGE_SIZE:
         print 'Warning: capping image size below ' + str(estPixelSize)
-        bufferSizeMeters = (MAX_IMAGE_SIZE*metersPerPixel) / 2.0
+        bufferSizeMeters = (MAX_IMAGE_SIZE*mppToUse) / 2.0
         # TODO: Lower the image resolution in this case?
 
     
@@ -286,9 +293,9 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
 
     # Also need to convert from MPP to Google's weird scale value
     metersPerDegree = miscUtilities.getMetersPerDegree(longitude, latitude)
-    #print 'Requested MPP = ' + str(metersPerPixel)
+    #print 'Requested MPP = ' + str(mppToUse)
     #print 'Meters per degree = ' + str(metersPerDegree)
-    scale = miscUtilities.computeScale(metersPerDegree, metersPerPixel)
+    scale = miscUtilities.computeScale(metersPerDegree, mppToUse)
     
     #print 'Computed scale = ' + str(scale)
 
@@ -326,7 +333,8 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     #landsatVisParams = {'bands': sensor['rgbBands'], 'gain': '1.8, 1.5, 1.0'}
     miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
 
-    return percentValid
+    # Return percent valid pixels and the resolution we used.
+    return (percentValid, mppToUse)
 
 
 #======================================================================================================

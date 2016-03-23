@@ -208,28 +208,41 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   {
     printf("Writing preprocessed images...\n");
     cv::imwrite( debugFolder+"basemapProcessed.jpeg", refImage );
-    cv::imwrite( debugFolder+"geocamProcessed.jpeg", matchImage );
+    cv::imwrite( debugFolder+"geocamProcessed.jpeg",  matchImage );
   }
     
   std::vector<cv::KeyPoint> keypointsA, keypointsB;
   cv::Mat descriptorsA, descriptorsB;  
 
-  int nfeatures = 2000;
+  const int numPixelsRef   = refImage.rows   * refImage.cols;
+  const int numPixelsMatch = matchImage.rows * matchImage.cols;
+
+  // Adaptively set the number of features
+  int nfeaturesRef   = numPixelsRef   / 850;
+  int nfeaturesMatch = numPixelsMatch / 850;
+  if (nfeaturesRef   < 1000) nfeaturesRef   = 1000;
+  if (nfeaturesMatch < 1000) nfeaturesMatch = 1000;
+  printf("Using %d reference features.\n", nfeaturesRef);
+  printf("Using %d match features.\n",     nfeaturesMatch);
   
-  cv::Ptr<cv::FeatureDetector    > detector;
-  cv::Ptr<cv::DescriptorExtractor> extractor;
+  cv::Ptr<cv::FeatureDetector    > detectorRef,  detectorMatch;
+  cv::Ptr<cv::DescriptorExtractor> extractorRef, extractorMatch;
   if (detectorType == DETECTOR_TYPE_BRISK)
   {
-    detector  = cv::BRISK::create();
-    extractor = cv::BRISK::create();
+    detectorRef    = cv::BRISK::create();
+    detectorMatch  = cv::BRISK::create();
+    extractorRef   = cv::BRISK::create();
+    extractorMatch = cv::BRISK::create();
   }
   if (detectorType == DETECTOR_TYPE_ORB)
   {
-    nfeatures         = 2000; // ORB is pretty fast to try more features
+    //nfeatures         = 2000; // ORB is pretty fast to try more features
     float scaleFactor = 1.2f; // 1.2 is  default
     int nlevels       = 8; // 8 is default
-    detector  = cv::ORB::create(nfeatures);
-    extractor = cv::ORB::create(nfeatures);
+    detectorRef    = cv::ORB::create(nfeaturesRef  );
+    detectorMatch  = cv::ORB::create(nfeaturesMatch);
+    extractorRef   = cv::ORB::create(nfeaturesRef  );
+    extractorMatch = cv::ORB::create(nfeaturesMatch);
     printf("Using the ORB feature detector\n");
   }
   if (detectorType == DETECTOR_TYPE_SIFT)
@@ -238,8 +251,10 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     double contrastThreshold = 0.04;
     double edgeThreshold     = 15;
     double sigma             = 1.2;
-    detector  = cv::xfeatures2d::SIFT::create(nfeatures, nOctaveLayers, contrastThreshold, edgeThreshold, sigma);
-    extractor = cv::xfeatures2d::SIFT::create(nfeatures, nOctaveLayers, contrastThreshold, edgeThreshold, sigma);
+    detectorRef    = cv::xfeatures2d::SIFT::create(nfeaturesRef,   nOctaveLayers, contrastThreshold, edgeThreshold, sigma);
+    detectorMatch  = cv::xfeatures2d::SIFT::create(nfeaturesMatch, nOctaveLayers, contrastThreshold, edgeThreshold, sigma);
+    extractorRef   = cv::xfeatures2d::SIFT::create(nfeaturesRef,   nOctaveLayers, contrastThreshold, edgeThreshold, sigma);
+    extractorMatch = cv::xfeatures2d::SIFT::create(nfeaturesMatch, nOctaveLayers, contrastThreshold, edgeThreshold, sigma);
     printf("Using the SIFT feature detector\n");
   }
   if (detectorType == DETECTOR_TYPE_AKAZE)
@@ -251,14 +266,16 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     float threshold          = 0.0015f; // Controls number of points found
     int   numOctaves         = 8;
     int   numOctaveLayers    = 5; // Num sublevels per octave
-    detector  = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
-    extractor = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
+    detectorRef    = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
+    detectorMatch  = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
+    extractorRef   = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
+    extractorMatch = cv::AKAZE::create(descriptorType, descriptorSize, descriptorChannels, threshold, numOctaves, numOctaveLayers);
   }
   
   printf("detect...\n");
-  detector->detect(  refImage, keypointsA); // Basemap
+  detectorRef->detect(  refImage, keypointsA); // Basemap
   printf("extract...\n");
-  extractor->compute(refImage, keypointsA, descriptorsA);
+  extractorRef->compute(refImage, keypointsA, descriptorsA);
 
   // TODO: Try out a cloud masking algorithm for the ISS image!
   // - Handle clouds in the reference image using Earth Engine.
@@ -266,9 +283,9 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   
   printf("detect...\n");
   //detector->detect(  matchImage, keypointsB, keypointMask); // ISS image
-  detector->detect(  matchImage, keypointsB); // ISS image
+  detectorMatch->detect(  matchImage, keypointsB); // ISS image
   printf("extract...\n");
-  extractor->compute(matchImage, keypointsB, descriptorsB);
+  extractorMatch->compute(matchImage, keypointsB, descriptorsB);
 
   if ( (keypointsA.size() == 0) || (keypointsB.size() == 0) )
   {
