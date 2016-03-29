@@ -21,13 +21,31 @@
 
 import sys, os, glob, re, shutil, subprocess, string, time, errno
 import re
-import IrgIsisFunctions, IrgStringFunctions
+import IrgStringFunctions
 
 
-# This function is wrapped here for convenience
-# - To put it in one place would require another python functions file.
 def getImageSize(imagePath):
-    return IrgIsisFunctions.getImageSize(imagePath)
+    """Returns the size [samples, lines] in an image"""
+
+    # Make sure the input file exists
+    if not os.path.exists(imagePath):
+        raise Exception('Image file ' + imagePath + ' not found!')
+       
+    # Use subprocess to suppress the command output
+    cmd = ['gdalinfo', imagePath]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+
+    # Extract the size from the text
+    sizePos    = textOutput.find('Size is')
+    endPos     = textOutput.find('\n', sizePos+7)
+    sizeStr    = textOutput[sizePos+7:endPos]
+    sizeStrs   = sizeStr.strip().split(',')
+    numSamples = int(sizeStrs[0])
+    numLines   = int(sizeStrs[1])
+    
+    size = [numSamples, numLines]
+    return size
 
 
 def getGdalInfoTagValue(text, tag):
@@ -479,14 +497,51 @@ def build_vrt( fullImageSize, tileLocs, tilePaths, outputPath ):
     f.write("</VRTDataset>\n")
     f.close()    
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
 
+# TODO: Move to the main version of this file!
+def extractGcps(geoTiffPath):
+    '''Returns a list of the GCPs listed in a geotiff file'''
+    
+    # Call command line tool silently
+    cmd = ['gdalinfo', geoTiffPath]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+    
+    # Loop through all the text output looking for GCPs
+    continuing = False
+    lines = textOutput.split('\n')
+    imagePoints = []
+    worldPoints = []
+    for line in lines:
+        
+        # Each GCP spans two lines, so use "continuing" to grab the second line.
+        if continuing or ('GCP' in line):
+            
+            
+            if not continuing:
+                # Nothing to do here?
+                continuing = True
+            else:
+                # Parse the GCP info
+                s = line.replace(')','').replace('(','')
+                center = line.find('->')
+                first  = line[:center]
+                second = line[center+2:]
+                partsFirst  = first.split(',')
+                partsSecond = first.split(',')
+                imageCoord  = (float(partsFirst [0]), float(partsFirst [1]))
+                worldCoord  = (float(partsSecond[0]), float(partsSecond[1]))
+                
+                imagePoints.append(imageCoord)
+                worldPoints.append(worldCoord)
+                continuing = False
+    
+    return (imagePoints, worldPoints)
+    
+    
+    
+    
+    
+    
+    
+    

@@ -2,384 +2,438 @@
 
 
 import os, sys
-import subprocess
+import optparse
 import sqlite3
 #from pysqlite2 import dbapi2 as sqlite3
 
 import registration_common
 import register_image
+import traceback
 
-# Hard coded paths!
-DB_PATH          = '/home/smcmich1/db.sqlt'
-DCRAW_PATH       = '/home/smcmich1/repo/dcraw/dcraw'
-RAW_IMAGE_FOLDER = '/media/network/ImagesDrop/RawESC'
-TEMP_FOLDER      = '/home/smcmich1/temp_images'
-
-
-# TODO: Move some of these functions up
-
-def getFrameString(mission, roll, frame):
-    return (mission +', '+ roll +', '+ frame)
+import IrgGeoFunctions
+import dbLogger
+import source_database
+import offline_config
 
 
-# TODO: Play around with this to get the best possible output images
-def convertRawFileToTiff(rawPath, outputPath):
-    '''Convert one of the .raw image formats to a .tif format using
-       the open-source dcraw software.'''
-    if not os.path.exists(rawPath):
-        raise Exception('Raw image file does not exist: ' + rawPath)
-    cmd = DCRAW_PATH + ' +M -W -c -o 1 -T ' + rawPath + ' > ' + outputPath
-    print cmd
-    os.system(cmd)
-    if not os.path.exists(outputPath):
-        raise Exception('Failed to convert input file ' + rawPath)
 
-def chooseSubFolder(frame, cutoffList, pathList):
-    '''Helper function to reduce boilerplate in getRawPath.
-       Choose which subfolder a file is in based on the frame number.'''
-    numVals = len(cutoffList)
-    if not (len(pathList)-1) == numVals:
-        raise Exception('Bad cutoff list!')
-    for i in range(0,numVals):
-        if frame < cutoffList[i]:
-            return pathList[i]
-    return pathList[-1]
+def safeMakeDir(folder):
+    if not os.path.exists(folder):
+        os.mkdir(folder)
 
-def getRawPath(mission, roll, frame):
-    '''Generate the full path to a specified RAW file.'''
     
-    # The file storage system is not consistent, so
-    #  many missions need some special handling.
+def getWorkingPath(mission, roll, frame):
+    '''Get a good location to process this image.'''
     
-    # Zero pad values as needed
+    # Generate a file name similar to the RAW storage scheme
     FRAME_DIGITS = 6
-    zFrame = frame.rjust(FRAME_DIGITS, '0')
+    zFrame   = frame.rjust(FRAME_DIGITS, '0')
+    filename = mission.lower() + roll.lower() + zFrame + '.tif'
     
-    # The default conventions
-    name      = mission.lower() + roll.lower() + zFrame
-    ext       = '.nef'
-    subFolder = mission # The mission name in caps
-    iFrame = int(frame)
+    # Break up frames so that there are 1000 per folder
+    FRAMES_PER_FOLDER = 1000
+    frameFolderNum = (int(frame) // FRAMES_PER_FOLDER)*1000
+    frameFolder    = str(frameFolderNum).rjust(FRAME_DIGITS, '0')
     
-    if ( (mission == 'ISS006') or
-         (mission == 'ISS011') or
-         (mission == 'ISS012') or
-         (mission == 'ISS013') or
-         (mission == 'ISS014') or
-         (mission == 'ISS016') or
-         (mission == 'ISS017')):
-        name = mission + roll + zFrame
-        ext  = '.dcr'
+    # Store data in /mission/roll/frameF/file, skip roll if E.
+    safeMakeDir(offline_config.OUTPUT_IMAGE_FOLDER)
+    subFolder = os.path.join(offline_config.OUTPUT_IMAGE_FOLDER, mission)
+    safeMakeDir(subFolder)
+    if not (roll.lower() == 'e'):
+        subFolder = os.path.join(subFolder, roll)
+        safeMakeDir(subFolder)
+    subFolder = os.path.join(subFolder, frameFolder)
+    safeMakeDir(subFolder)
+    return os.path.join(subFolder, filename)
+
+
+def getFrameFromFolder(folder):
+    '''Parse mission, roll, frame from an output folder'''
+
+    name = os.path.basename(folder)
+    if len(name) != 14:
+        raise Exception(folder + ' is not a valid output folder!')
     
-    if ( (mission == 'ISS015') or
-         (mission == 'ISS014')):
-        name = mission + roll + zFrame
-        ext  = '.DCR'
-
-    if ( (mission == 'ISS018') or
-         (mission == 'ISS019') or
-         (mission == 'ISS019')):
-        name = mission + roll + zFrame
-
-    if ( (mission == 'ISS032') or
-         (mission == 'ISS033') or
-         (mission == 'ISS034') or
-         (mission == 'ISS035') or
-         (mission == 'ISS036') or
-         (mission == 'ISS037') or
-         (mission == 'ISS038') or
-         (mission == 'ISS039') or
-         (mission == 'ISS040') or
-         (mission == 'ISS041') or
-         (mission == 'ISS042') or
-         (mission == 'ISS046')):
-        ext  = '.NEF'
-
-    if mission == 'ISS022':
-        subFolder = 'ISS022/' + chooseSubFolder(iFrame,
-            [46575, 60274, 66153, 72633, 78049, 81235, 87189, 99095, 102079, 102303],
-            ['e031971-e046574', 'e046575-e060273', 'e060274-e066152',
-             'e066153-e072632', 'e072633-e078048', 'e078049-e081234',
-             'e081235-e087188', 'e087189-e099094', 'e099095-e102078',
-             'e102079-e102302', 'e102303-e102923'])
-
-    if mission == 'ISS023':
-        subFolder = 'ISS023/' + chooseSubFolder(iFrame,
-            [8826, 14780, 19842, 24906, 29099, 34136,
-             40035, 45624, 51324, 58386, 58480],
-            ['e005000-e008825', 'e008826-e014779', 'e014780-e019841',
-             'e019842-e024905', 'e024906-e029098', 'e029099-e034135',
-             'e034136-e040034', 'e040035-e045623', 'e045624-e051323',
-             'e051324-e058385', 'e058386-e058479', 'e058480-e060753'])
+    mission = name[0:6].upper
+    roll    = name[7].upper
+    frame   = name[8:]
     
-    if mission == 'ISS030':
-        ext  = '.NEF'
-        subFolder = chooseSubFolder(iFrame,
-            [107724, 209872, 228051],
-            ['ISS030', 'ISS030_Batch02', 'ISS030_Batch03', 'ISS030_Batch04'])
-
-    if mission == 'ISS031':
-        ext  = '.nef'
-        subFolder = chooseSubFolder(iFrame, [95961], ['ISS031', 'ISS031_Batch02'])
-
-    if mission == 'ISS042':
-        ext  = '.NEF'
-        subFolder = chooseSubFolder(iFrame,
-            [170284, 280908], ['ISS042', 'ISS042_Batch02', 'ISS030_Batch03'])
-
-    if mission == 'ISS043':
-        ext  = '.NEF'
-        subFolder = chooseSubFolder(iFrame, [159293], ['ISS043', 'ISS043_Batch02'])
-        
-    if mission == 'ISS045':
-        ext  = '.NEF'
-        subFolder = chooseSubFolder(iFrame, [152311], ['ISS045', 'ISS045_Batch02'])
-    
-    subPath  = os.path.join(subFolder, name+ext)
-    fullPath = os.path.join(RAW_IMAGE_FOLDER, subPath)
-    return fullPath
-
-def getSensorSize(cameraCode):
-    '''Returns sensor (width, height) in mm given the two letter
-       camera code from the database.'''
-    if cameraCode == 'E2':
-        return (27.6, 18.5)
-    if cameraCode == 'E3':
-        return (27.6, 18.5)
-    if cameraCode == 'E4':
-        return (27.6, 18.5)
-    if cameraCode == 'N1':
-        return (23.6, 15.5)
-    if cameraCode == 'N2':
-        return (23.7, 15.7)
-    if cameraCode == 'N3':
-        return (36.0, 23.9)
-    if cameraCode == 'N4':
-        return (35.9, 24.0)
-    if cameraCode == 'N5':
-        return (36.0, 23.9)
-    if cameraCode == 'N6':
-        return (36.0, 23.9)
-    if cameraCode == 'N7':
-        return (35.9, 24.0)
-    print 'Warning: Missing sensor code for camera ' + cameraCode
-    return (0,0)
+    return (mission, roll, frame)
 
 
-def getRawImageSize(rawPath):
-    '''Returns the size in pixels of the raw camera file'''
-
-    cmd = [DCRAW_PATH, '-i',  '-v', rawPath]
-    print cmd
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    textOutput, err = p.communicate()
-    lines = textOutput.split('\n')
-    for line in lines:
-        if 'Full size' not in line:
-            continue
-        parts  = line.split()
-        width  = int(parts[2])
-        height = int(parts[4])
-        return (width, height)
-    raise Exception('Unable to determine size of image: ' + rawPath)
-    
-
-class FrameInfo(object):
-    '''Class that contains the metadata for one frame.'''
-    
-    def __init__(self):
-        '''Init to default values'''
-        self.mission         = None
-        self.roll            = None
-        self.frame           = None
-        self.centerLon       = None
-        self.centerLat       = None
-        self.nadirLon        = None
-        self.nadirLat        = None
-        self.altitude        = None
-        self.date            = None
-        self.time            = None
-        self.focalLength     = None
-        self.exposure        = 'N'
-        self.tilt            = 'NV'
-        self.cloudPercentage = 0.0
-        self.camera          = None
-        self.imageList       = []
-        self.rawPath         = None
-        self.width           = 0
-        self.height          = 0
-        self.sensorHeight    = 0
-        self.sensorWidth     = 0
-        
-    def __str__(self):
-        '''Print out the values'''
-        return str(self.__dict__)
-        
-    def loadFromDb(self, dbCursor, mission, roll, frame):
-        '''Populate from an entry in the database'''
-        
-        dbCursor.execute('select * from Frames where trim(MISSION)=? and trim(ROLL)=? and trim(FRAME)=?',
-                       (mission, roll, frame))
-        rows = dbCursor.fetchall()
-        if len(rows) != 1: # Make sure we found the next lines
-            raise Exception('Could not find any data for frame: ' +
-                            getFrameString(mission, roll, frame))
-
-        rows = rows[0]
-        print rows
-        self.mission         = mission
-        self.roll            = roll
-        self.frame           = frame
-        self.exposure        = str(rows[0]).strip()
-        self.tilt            = str(rows[3]).strip()
-        self.time            = str(rows[8]).strip()
-        self.date            = str(rows[9]).strip()
-        self.cloudPercentage = float(rows[13]) / 100
-        self.altitude        = float(rows[15])
-        self.focalLength     = float(rows[18])
-        self.centerLat       = float(rows[19])
-        self.centerLon       = float(rows[20])
-        self.nadirLat        = float(rows[21])
-        self.nadirLon        = float(rows[22])
-        self.camera          = str(rows[23]).strip()
-        self.film            = str(rows[24]).strip()
-        
-        # The input tilt can be in letters or degrees so convert
-        #  it so that it is always in degrees.
-        if (self.tilt == 'NV') or not self.tilt:
-            self.tilt = '0'
-        if self.tilt == 'LO':
-            self.tilt = '20'
-        if self.tilt == 'HO':
-            self.tilt = '70'
-        self.tilt = float(self.tilt)
+def findNearbyResults(mission, roll, frame, cursor, dbLog):
+    '''Looks for results we have that we may be able to match to.'''
        
-        # Convert the date to 'YYYY.MM.DD' format that the image fetcher wants
-        # - TODO: Use a standardized format!
-        self.date = self.date[0:4] + '.' + self.date[4:6] + '.' +  self.date[6:8]
-       
-        # Get the sensor size
-        (self.sensorWidth, self.sensorHeight) = getSensorSize(self.camera)
-       
-        #if not self.isGoodAlignmentCandidate():
-        #    return # In this case don't bother finding the images
+    # Get a list of our results we have that we can compare to
+    ourResults = dbLog.findNearbyGoodResults(mission, roll, frame,
+                                offline_config.LOCAL_ALIGNMENT_MAX_FRAME_RANGE)
+    if not ourResults:
+        return []
     
-        # Fetch the associated non-raw image files
-        dbCursor.execute('select * from Images where trim(MISSION)=? and trim(ROLL)=? and trim(FRAME)=?',
-                           (mission, roll, frame))
-        rows = dbCursor.fetchall()
-        if len(rows) < 1: # No images provided
-            return
-        # Record the image paths
-        bestNumPixels = 0
-        for row in rows:
-            # Get the file path and verify it exists
-            folder = str(row[4]).strip()
-            name   = str(row[5]).strip()
-            path   = os.path.join(folder, name)
-            if not os.path.exists(path):
-                continue           
-            self.imageList.append(path)
+    # Fetch info for this frame from the input database
+    targetFrameData = source_database.FrameInfo()
+    targetFrameData.loadFromDb(cursor, mission, roll, frame)
+    
+    # Loop through the allowed range of frames starting from the nearest frames
+    results = []
+    currentIndex = -1
+    numAttempts  = 0
+    while True:
+        
+        # Check if we have a result for this frame
+        thisFrameString = str(int(frame) + currentIndex)
+        if thisFrameString in ourResults:
             
-            # Record if this is the highest resolution image
-            width     = int(row[6])
-            height    = int(row[7])
-            numPixels = width*height
-            if numPixels > bestNumPixels:
-                self.width     = width
-                self.height    = height
+            # Fetch info for this frame from the input database
+            frameDbData = source_database.FrameInfo()
+            frameDbData.loadFromDb(cursor, mission, roll, thisFrameString) 
         
-        # Try to find an associated RAW file
-        thisRaw = getRawPath(self.mission, self.roll, self.frame)
-        if os.path.exists(thisRaw):
-            self.rawPath = thisRaw
-        else:
-            print 'Did not find: ' + thisRaw
+            # Check the quality and distance
+            if (frameDbData.isGoodAlignmentCandidate() and
+                frameDbData.isCenterWithinDist(targetFrameData.centerLon, targetFrameData.centerLat,
+                                               offline_config.LOCAL_ALIGNMENT_MAX_DIST)):
+                
+                # Add to the list of frames we will compare to.
+                results.append((frameDbData, ourResults[thisFrameString]))
+                print 'Found potential local match frame: ' + frameDbData.frame
+                numAttempts += 1
         
-        # TODO: Handle images with no RAW data
-        # Get the image size
-        if self.rawPath:
-            (self.width, self.height) = getRawImageSize(self.rawPath)
+        if numAttempts == offline_config.LOCAL_ALIGNMENT_MAX_ATTEMPTS:
+            break
         
-    # These functions check individual metadata parameters to
-    #  see if the image is worth trying to process.
-    def isExposureGood(self):
-        return (self.exposure == 'N') or (self.exposure == '')
-    def isTiltGood(self):
-        MAX_TILT_ANGLE = 50
-        return (self.tilt < MAX_TILT_ANGLE)
-    def isCloudPercentageGood(self):
-        MAX_CLOUD_PERCENTAGE = 0.20
-        return (self.cloudPercentage < MAX_CLOUD_PERCENTAGE)
+        # Negate the index and move one further out every other time
+        if currentIndex > 0:
+            currentIndex += 1
+        currentIndex *= -1
+        if abs(currentIndex) > offline_config.LOCAL_ALIGNMENT_MAX_FRAME_RANGE:
+            break
+       
+    return results
     
-    def isGoodAlignmentCandidate(self):
-        '''Return True if the image is a good candidate for automatic alignment'''
-        return (self.isExposureGood() and
-                self.isTiltGood() and
-                self.isCloudPercentageGood() and
-                self.rawPath) # Later, work with non-raw images.
-
     
-
-
-def main():
-    pass
-
-def test():
-
-    # Open the database
-    print 'Initializing database connection...'
-    db     = sqlite3.connect(DB_PATH)
-    cursor = db.cursor()
+def getRawTiffFile(mission, roll, frame, rawPath):
+    '''Get the path to the coverted RAW file, generating it if needed'''
     
+    print 'Converting RAW to TIF...'
+    plainTiffPath = getWorkingPath(mission, roll, frame)
+    if not os.path.exists(plainTiffPath):
+        source_database.convertRawFileToTiff(rawPath, plainTiffPath)
+    return plainTiffPath
+
+def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
+    '''Process a single specified frame.
+       Returns True if we attempted to perform image alignment and did not hit an exception.'''
+
     print 'Fetching frame information...'
-    frame = FrameInfo()
-    #frame.loadFromDb(cursor, 'ISS001', '347', '24')
-    #frame.loadFromDb(cursor, 'ISS026', 'E', '29592')
+    frameDbData = source_database.FrameInfo()
+    frameDbData.loadFromDb(cursor, mission, roll, frame)
     
-    frame.loadFromDb(cursor, 'ISS043', 'E', '91884') # Warp trouble?
-    #frame.loadFromDb(cursor, 'ISS043', 'E', '93251') # Works poorly on snow!
-    #frame.loadFromDb(cursor, 'ISS043', 'E', '122588') # Good only on lake
-    #frame.loadFromDb(cursor, 'ISS044', 'E', '868')   # Should be better
-    #frame.loadFromDb(cursor, 'ISS044', 'E', '1998') # Tough image
-    
-    if not frame.isGoodAlignmentCandidate():
+    if not frameDbData.isGoodAlignmentCandidate():
         print 'This image is not a valid alignment candidate:'
-        print frame
-        return -1
+        print frameDbData
+        return False
     
-    print frame
+    print frameDbData
     
     # TODO: Make sure everything properly handles existing data!
     
     # We can't operate on the RAW file, so convert it to TIF.
-    print 'Converting RAW to TIF...'
-    tempName = 'raw_converted.tif'
-    tempPath = os.path.join(TEMP_FOLDER, tempName)
-    convertRawFileToTiff(frame.rawPath, tempPath)
+    plainTiffPath   = getRawTiffFile(mission, roll, frame, frameDbData.rawPath)
     
     # Estimate the pixel resolution on the ground
-    metersPerPixel = registration_common.estimateGroundResolution(frame.focalLength,
-                            frame.width, frame.height, frame.sensorWidth, frame.sensorHeight,
-                            frame.nadirLon, frame.nadirLat, frame.altitude,
-                            frame.centerLon, frame.centerLat)
+    metersPerPixel = registration_common.estimateGroundResolution(frameDbData.focalLength,
+                            frameDbData.width, frameDbData.height, frameDbData.sensorWidth,
+                            frameDbData.sensorHeight, frameDbData.nadirLon, frameDbData.nadirLat,
+                            frameDbData.altitude, frameDbData.centerLon, frameDbData.centerLat,
+                            frameDbData.tilt)
     print 'Meters per pixel = ' + str(metersPerPixel)
-    
-    # Try to register the image
-    print 'Attempting to register image...'
-    register_image.register_image(tempPath,
-                                  frame.centerLon, frame.centerLat,
-                                  metersPerPixel, frame.date,
-                                  refImagePath=None, debug=True, force=False)
 
-    # Clean up
+    # Increase the error slightly for chained image transforms
+    LOCAL_TRANSFORM_ERROR_ADJUST = 1.10
+
+
+    # Dummy values in case we don't get any real results
+    imageToProjectedTransform = registration_common.getIdentityTransform()
+    confidence                = registration_common.CONFIDENCE_NONE
+    imageInliers              = []
+    gdcInliers                = []
+    refMetersPerPixel         = 9999
+
+    # If requested, get nearby previously matched frames to compare to.
+    if searchNearby:
+        possibleNearbyMatches = findNearbyResults(mission, roll, frame, cursor, dbLog)
+        
+        if not possibleNearbyMatches:
+            print 'Did not find any potential local matches!'
+        
+        for (otherFrame, ourResult) in possibleNearbyMatches:
+
+            print 'Trying local match with frame: ' + str(otherFrame.frame)
+            
+            # Get path to other frame image
+            otherTiffPath  = getRawTiffFile(otherFrame.mission, otherFrame.roll, otherFrame.frame, otherFrame.rawPath)
+            otherTransform = ourResult[0] # This is still in the google projected format
+            
+            print 'otherTransform = ' + str(otherTransform.matrix)
+            
+            print 'Attempting to register image...'
+            (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
+                register_image.register_image(plainTiffPath,
+                                              frameDbData.centerLon, frameDbData.centerLat,
+                                              metersPerPixel, frameDbData.date,
+                                              refImagePath         =otherTiffPath,
+                                              referenceGeoTransform=otherTransform,
+                                              debug=True, force=True, slowMethod=False)
+            
+            # Quit once we get a good match
+            if confidence == registration_common.CONFIDENCE_HIGH:
+                
+                # Convert from the image-to-image GCPs to the reference image GCPs
+                #  located in the new image.
+                refFrameGdcInliers = ourResult[3] # TODO: Clean this up!
+                (width, height)    = IrgGeoFunctions.getImageSize(plainTiffPath)
+                
+                (imageInliers, gdcInliers) = registration_common.convertGcps(refFrameGdcInliers,
+                                                    imageToProjectedTransform, width, height)
+                
+                # If none of the original GCPs fall in the new image, don't use this alignment result.
+                # - We could use this result, but we don't in order to maintain accuracy standards.
+                if not imageInliers:
+                    imageToProjectedTransform = registration_common.getIdentityTransform()
+                    confidence                = registration_common.CONFIDENCE_NONE
+                    imageInliers              = []
+                    gdcInliers                = []
+                    refMetersPerPixel         = 9999
+                    
+                else: # Success, no need to keep aligning images
+                    break 
+        
+    else: # Try to register the image to Landsat
+        
+        print 'Attempting to register image...'
+        (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
+            register_image.register_image(plainTiffPath,
+                                          frameDbData.centerLon, frameDbData.centerLat,
+                                          metersPerPixel, frameDbData.date,
+                                          refImagePath=None,
+                                          debug=True, force=False, slowMethod=True)
+
+
+    # A very rough estimation of localization error at the inlier locations!
+    errorMeters = refMetersPerPixel * 1.5
+   
+    # Log the results to our database
+    dbLog.addResult(mission, roll, frame,
+                    imageToProjectedTransform, confidence, imageInliers, gdcInliers)
+
+    if confidence == registration_common.CONFIDENCE_HIGH:
+        print 'Generating output geotiffs...'
+        recordOutputImages(plainTiffPath, imageInliers, gdcInliers, errorMeters, overwrite=True)   
     
-    print 'Closing database connection...'
-    db.close()
+    print 'Finished processing frame'
+    return True
+
+
+def recordOutputImages(plainTiffPath, imageInliers, gdcInliers, minUncertaintyMeters, overwrite=True):
+    '''Generates all the output image files that we create for each successfully processed image.'''
+    
+    # We generate two pairs of images, one containing the image data
+    #  and another with the same format but containing the uncertainty distances.
+    geotiffOutputPrefix     = os.path.splitext(plainTiffPath)[0]
+    uncertaintyOutputPrefix = geotiffOutputPrefix + '-uncertainty'
+    rawUncertaintyPath      = geotiffOutputPrefix + '-uncertainty_raw.tif'
+    
+    # Create the raw uncertainty image
+    (width, height) = IrgGeoFunctions.getImageSize(plainTiffPath)
+    #registration_common.generateUncertaintyImage(width, height, imageInliers,
+    #                                             minUncertaintyMeters, rawUncertaintyPath)
+    
+    # Generate the two pairs of images in the same manner
+    registration_common.generateGeotiff(plainTiffPath, geotiffOutputPrefix, imageInliers, gdcInliers,
+                                        overwrite=True)
+    #registration_common.generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
+    #                                    overwrite=True)
+    
+    # Clean up the raw uncertainty image
+    #os.remove(rawUncertaintyPath)
+
+
+
+def processMission(inputDb, outputDb, mission, roll=None, frame=None, localSearch=False,
+                   processLimit=None, overwriteLevel=None):
+    '''Processes the specified data'''
+    
+    inputCursor = inputDb.cursor()
+    
+    # Look up records for the mission that we may be able to process
+    processingCandidates = source_database.getCandidatesInMission(inputCursor, mission, roll, frame)
+    
+    print 'Found ' + str(len(processingCandidates)) + ' images to process.'
+    numProcessed = 0
+    for candidate in processingCandidates:
+        
+        
+        # Grab the frame identity and check if we have already processed it
+        (mission, roll, frame) = candidate
+
+        print '******** Processing: ' + source_database.getFrameString(mission, roll, frame) +' ********************'
+        
+        if (outputDb.doWeHaveResult(mission, roll, frame, overwriteLevel)):
+            print '-- Already have a result, skipping.'
+            continue
+
+        try:
+            result = processFrame(mission, roll, frame, inputCursor, outputDb, localSearch)
+        except Exception as e:
+            result    = False           
+            errString = str(e)
+            print 'Caught Exception: ' + errString
+            print traceback.print_exc()
+
+
+        if result:
+            numProcessed += 1
+        else:
+            print 'Failed to compute the transform.'
+    
+        if processLimit and (numProcessed == processLimit):
+            break
+    
+    print 'Processed ' + str(numProcessed) + ' new frames.'
+       
+    print 'Finished running backlog test'
+    
+
+
+
+
+def main(argsIn):
+
+    try:
+        usage = "usage: backlog_processor.py [--help]\n  "
+        parser = optparse.OptionParser(usage=usage)
+        
+        parser.add_option("--mission", dest="mission", default=None,
+                          help="Specify a mission to process.")
+        parser.add_option("--roll",    dest="roll",    default=None,
+                          help="Specify a roll to process.  Requires mission.")
+        parser.add_option("--frame",   dest="frame",   default=None,
+                          help="Specify a frame to process. Requires roll.")
+        
+        parser.add_option("--limit",   dest="limit",   default=None,
+                          help="Do not process more than this many frames.")
+        
+        parser.add_option("--overwrite-level", dest="overwriteLevel", default=None,
+                          help="If set, re-process frames where the result was this or worse [NONE, LOW, HIGH]")
+        
+        parser.add_option("--local-search", dest="localSearch", action="store_true", default=False,
+                          help="Instead of matching to Landsat, try to match to nearby matched images.")
+
+        parser.add_option("--print-stats", dest="printStats", action="store_true", default=False,
+                          help="Instead of aligning images, print current result totals.")
+        
+        (options, args) = parser.parse_args(argsIn)
+
+    except optparse.OptionError, msg:
+        raise Usage(msg)
+
+    # Check options
+    if options.roll and not options.mission:
+        print 'Roll option requires mission option to be specified!'
+        return -1
+    if options.frame and not options.roll:
+        print 'Frame option requires roll option to be specified!'
+        return -1
+
+    # Convert from string to enum
+    options.overwriteLevel = registration_common.confidenceFromString(options.overwriteLevel)
+
+    if options.mission:
+        missionList = [options.mission]
+    else:
+        print 'Proccessing all known missions.  This could take a long time!'
+        raise Exception('DEBUG')
+        missionList = source_database.getMissionList()
+    
+    
+    
+    
+    
+    # Open the input and output databases
+    print 'Initializing database connection...'
+    inputDb = sqlite3.connect(offline_config.DB_PATH)
+
+    print 'Opening the output log database...' # This one has a wrapper class
+    outputDb = dbLogger.DatabaseLogger(offline_config.OUTPUT_DATABASE_PATH)
+    
+    
+    if options.printStats: # Print a header line
+        print 'MISSION\t-->\tTOTAL\tNONE\tLOW\tHIGH\tHIGH_FRACTION'
+    
+    # Process each of the selected missions
+    for mission in missionList:
+        
+        if options.printStats:
+            
+            counts = outputDb.getProcessingStats(mission)
+            print ('%s\t-->\t%d\t%d\t%d\t%d\t%.2f' %
+                (mission, counts[0], counts[1], counts[2], counts[3], float(counts[3])/float(counts[0])))
+            
+        else: # Perform alignment
+            print '>>>>>> Processing mission '+ mission +' <<<<<<'
+            processMission(inputDb, outputDb,
+                           mission, options.roll, options.frame, options.localSearch,
+                           options.limit, options.overwriteLevel)
+
+    # Clean up  
+    print 'Closing input database connection...'
+    inputDb.close()
+
+
+def test():
+
+    # Open the input database
+    print 'Initializing database connection...'
+    inputDb = sqlite3.connect(offline_config.DB_PATH)
+    cursor  = inputDb.cursor()
+
+    print 'Opening the output log database...'
+    outputDb = dbLogger.DatabaseLogger(offline_config.OUTPUT_DATABASE_PATH)
+    
+    #(mission, roll, frame) = ('ISS001', '347', '24')
+    #(mission, roll, frame) = ('ISS026', 'E', '29592')
+    #(mission, roll, frame) = ('ISS043', 'E', '101834') # Rivers
+    #(mission, roll, frame) = ('ISS043', 'E', '101947') # Irrigation circles
+    
+    #(mission, roll, frame) = ('ISS043', 'E', '91884')  # Warp trouble?
+    #(mission, roll, frame) = ('ISS043', 'E', '93251')  # Works poorly on snow!
+    #(mission, roll, frame) = ('ISS043', 'E', '122588') # Good only on lake
+    #(mission, roll, frame) = ('ISS044', 'E', '868')    # Should be better
+    #(mission, roll, frame) = ('ISS044', 'E', '1998')   # Tough image
+    #(mission, roll, frame) = ('ISS043', 'E', '101805') # Landsat brightness issue
+    
+    (mission, roll, frame) = ('ISS043', 'E', '39938') # Would be nice to get this!
+    
+    #(mission, roll, frame) = ('ISS043', 'E', '101751') # Would be nice to get this!
+    #(mission, roll, frame) = ('ISS043', 'E', '101848') # Would be nice to get this!
+        # --> These requires a first pass at a smaller ref size or else WAY more key points
+        #     or some kind of forced key point distribution.
+        #  -> Alternately, an alternate method of preprocessing that highlights a different
+        #     of features, maybe lines (not points) or larger scale.
+    
+    #(mission, roll, frame) = ('ISS043', 'E', '101654') # Make local matches to this one
+    
+    
+    
+    
+    processFrame(mission, roll, frame, cursor, outputDb)
+
+    # Clean up   
+    print 'Closing input database connection...'
+    inputDb.close()
     
     print 'Finished running backlog test'
 
-
 # Simple test script
 if __name__ == "__main__":
-    sys.exit(test())
+    sys.exit(main(sys.argv[1:]))

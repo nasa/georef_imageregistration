@@ -19,6 +19,8 @@ This file contains tools for reading the source database and
 some of the input file formats.
 '''
 
+# TODO: Separate RAW data folder description into a separate file?
+
 #=======================================================
 # Helper functions
 
@@ -31,7 +33,7 @@ def convertRawFileToTiff(rawPath, outputPath):
        the open-source dcraw software.'''
     if not os.path.exists(rawPath):
         raise Exception('Raw image file does not exist: ' + rawPath)
-    cmd = DCRAW_PATH + ' +M -W -c -o 1 -T ' + rawPath + ' > ' + outputPath
+    cmd = offline_config.DCRAW_PATH + ' +M -W -c -o 1 -T ' + rawPath + ' > ' + outputPath
     print cmd
     os.system(cmd)
     if not os.path.exists(outputPath):
@@ -42,7 +44,6 @@ def getRawImageSize(rawPath):
     '''Returns the size in pixels of the raw camera file'''
 
     cmd = [offline_config.DCRAW_PATH, '-i',  '-v', rawPath]
-    print cmd
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     textOutput, err = p.communicate()
     lines = textOutput.split('\n')
@@ -93,6 +94,8 @@ def getRawPath(mission, roll, frame):
          (mission == 'ISS014') or
          (mission == 'ISS016') or
          (mission == 'ISS017')):
+        FRAME_DIGITS = 5
+        zFrame = frame.rjust(FRAME_DIGITS, '0')
         name = mission + roll + zFrame
         ext  = '.dcr'
     
@@ -161,7 +164,7 @@ def getRawPath(mission, roll, frame):
         subFolder = chooseSubFolder(iFrame, [152311], ['ISS045', 'ISS045_Batch02'])
     
     subPath  = os.path.join(subFolder, name+ext)
-    fullPath = os.path.join(RAW_IMAGE_FOLDER, subPath)
+    fullPath = os.path.join(offline_config.RAW_IMAGE_FOLDER, subPath)
     return fullPath
 
 def getSensorSize(cameraCode):
@@ -255,10 +258,10 @@ class FrameInfo(object):
         #  it so that it is always in degrees.
         if (self.tilt == 'NV') or not self.tilt:
             self.tilt = '0'
-        if self.tilt == 'LO':
-            self.tilt = '20'
-        if self.tilt == 'HO':
-            self.tilt = '70'
+        if self.tilt == 'LO': # We want to try these
+            self.tilt = '30'
+        if self.tilt == 'HO': # Do not want to try these!
+            self.tilt = '80'
         self.tilt = float(self.tilt)
        
         # Convert the date to 'YYYY.MM.DD' format that the image fetcher wants
@@ -330,15 +333,39 @@ class FrameInfo(object):
         return (abs(self.centerLon - lon) < dist) and (abs(self.centerLat - lat) < dist)
     
 
+def getMissionList(cursor):
+    '''Returns a list of the supported missions'''
+    
+    # Currently missions need to be added manually!
+    missionList = ['ISS006', 'ISS015', 'ISS020', 'ISS025', 'ISS030', 'ISS036',
+                   'ISS041', 'ISS047', 'ISS011', 'ISS016', 'ISS021', 'ISS026',
+                   'ISS032', 'ISS037', 'ISS042', 'ISS044', 'ISS012', 'ISS017',
+                   'ISS022', 'ISS027', 'ISS033', 'ISS038', 'ISS045', 'ISS013',
+                   'ISS018', 'ISS023', 'ISS028', 'ISS034', 'ISS039', 'ISS014',
+                   'ISS019', 'ISS024', 'ISS029', 'ISS031', 'ISS035', 'ISS040',
+                   'ISS043', 'ISS04']
+    
+    return missionList
 
-def getCandidatesInMission(cursor, mission):
-    '''Fetch a list of likely alignment candidates for a mission'''
+def getCandidatesInMission(cursor, mission, roll=None, frame=None):
+    '''Fetch a list of likely alignment candidates for a mission.
+       Optionally filter by roll and frame.'''
 
     # Look up records for the mission that we may be able to process
     cmd = ('select ROLL, FRAME from Frames where trim(MISSION)="'+mission
-            +'" and nullif(LON, "") notnull and nullif(LAT, "") notnull and nullif(CAMERA, "") notnull'
-            +' and (TILT != "HO") and CAST(TILT as real) < '+str(offline_config.MAX_TILT_ANGLE)
-            +' and CLDP < ' + str(offline_config.MAX_CLOUD_PERCENTAGE_INT))
+           +'" and nullif(LON, "") notnull and nullif(LAT, "") notnull and nullif(CAMERA, "") notnull')
+    
+    # If specified, apply these filters.
+    if roll:
+        cmd += ' and trim(ROLL)="'+roll+'"'
+    if frame:
+        cmd += ' and trim(FRAME)="'+frame+'"'
+
+    # If the user did not fully specify a file, filter based on image quality.
+    if (not roll) or (not frame):
+        cmd += (' and (TILT != "HO") and CAST(TILT as real) < '+str(offline_config.MAX_TILT_ANGLE)
+                +' and CLDP < ' + str(offline_config.MAX_CLOUD_PERCENTAGE_INT))
+        
     print cmd
     cursor.execute(cmd)
     rows = cursor.fetchall()
@@ -348,7 +375,7 @@ def getCandidatesInMission(cursor, mission):
     for row in rows:
         roll  = row[0].strip()
         frame = row[1].strip()
-        results.append(mission, row, frame)
+        results.append((mission, roll, frame))
         
     return results
 

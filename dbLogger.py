@@ -14,9 +14,28 @@ sys.path.insert(0, basepath + '/../geocamUtilWeb')
 from geocamTiePoint import transform
 
 '''
-   This file contains code for reading/writing our processing
-   results so they can be easily used/modified in the future.
+   This file contains code for reading/writing the database
+   containing our processing results.
+   
+   TODO: Manage our file outputs as well!
 '''
+
+
+# This is the table description used to create our output results database!
+TABLE_INIT_TEXT = \
+"""
+CREATE TABLE Results(
+  MISSION      TEXT    NOT NULL,
+  ROLL         TEXT    NOT NULL,
+  FRAME        TEXT    NOT NULL,
+  DATE         TEXT    NOT NULL,
+  CONFIDENCE   TEXT    NOT NULL,
+  TRANSFORM    TEXT,
+  IMAGE_POINTS TEXT,
+  GDC_POINTS   TEXT,
+  PRIMARY KEY (MISSION, ROLL, FRAME)
+);
+"""
 
 
 class DatabaseLogger(object):
@@ -38,39 +57,16 @@ class DatabaseLogger(object):
     
     def _initSqlDatabase(self):
         '''Makes sure that our SQLite database is set up and opens it'''
+        
         needToInit =  not os.path.exists(self._dbPath)
         self._dbConnection = sqlite3.connect(self._dbPath)
         self._dbCursor     = self._dbConnection.cursor()    
-        print needToInit
         if not needToInit:
             return
+        
         # Otherwise create the tables
-        TABLE_INIT_TEXT = \
-"""
-CREATE TABLE Results(
-  MISSION      TEXT    NOT NULL,
-  ROLL         TEXT    NOT NULL,
-  FRAME        TEXT    NOT NULL,
-  DATE         TEXT    NOT NULL,
-  CONFIDENCE   TEXT    NOT NULL,
-  TRANSFORM    TEXT,
-  IMAGE_POINTS TEXT,
-  GDC_POINTS   TEXT,
-  PRIMARY KEY (MISSION, ROLL, FRAME)
-);
-"""
         self._dbCursor.execute(TABLE_INIT_TEXT)
         self._dbConnection.commit()
-
-    
-    #def _getLogFolder(self, mission, roll, frame):
-    #    '''Returns the folder containing the specified log file'''
-    #    pass
-    
-    #def _getLogPath(self, mission, roll, frame):
-    #    '''Returns the full path to our log file for this frame'''
-    #    pass
-
 
     def _pointsToText(self, pointList):
         '''Converts a list of 2d points to text for database storage'''
@@ -82,6 +78,9 @@ CREATE TABLE Results(
     
     def _textToPoints(self, text):
         '''Converts a database text entry to a list of 2d points'''
+    
+        if text == '': # Handle empty lists
+            return []
     
         # Make points seperated by ;
         t = text.replace('(','').replace(')',';')
@@ -102,21 +101,55 @@ CREATE TABLE Results(
         '''Converts a database text entry to a transform'''
         
         # Make rows seperated by ;
-        t = text.replace('[','').replace(']',';')
+        t = text.replace('[','').replace(']',' ')
+        parts = [float(x) for x in t.split()]
         
-        mat = numpy.matrix(t[0:-2]) # Strip last two ';' before parsing
-        tform = transform.ProjectiveTransform(mat)
+        mat = numpy.array([[parts[0], parts[1], parts[2]],
+                           [parts[3], parts[4], parts[5]],
+                           [parts[6], parts[7], parts[8]]],
+                          dtype='float64')
+        tform = transform.ProjectiveTransform(mat)       
         return tform
     
     
-    def checkStats(self, mission=None):
-        '''Computes some statistics from our logged results'''
-        print 'TODO GENERATE STATS'
+    def getProcessingStats(self, mission=None):
+        '''Computes some statistics from our logged results.
+           Returns the counts: [total, NONE, LOW, HIGH]'''
+        self._dbCursor.execute('select CONFIDENCE from Results where MISSION="'+mission+'"')
+        rows = self._dbCursor.fetchall()
+        
+        counts = [0, 0, 0, 0]
+        counts[0] = len(rows)
+        for row in rows:
+            if row[0] == 'NONE':
+                counts[1] += 1
+            elif row[0] == 'LOW':
+                counts[2] += 1
+            elif row[0] == 'HIGH':
+                counts[3] += 1
+            else:
+                raise Exception('Unknown confidence type!')
+        
+        return counts
+    
+    
+    def doWeHaveResult(self, mission, roll, frame, overwriteLevel):
+        '''Returns True if we have a result for the given frame, otherwise False.
+           If overwriteLevel is specified, return False if we have that confidence or less'''
+        self._dbCursor.execute('select CONFIDENCE from Results where MISSION=? and ROLL=? and FRAME=?',
+                               (mission, roll, frame))
+        rows = self._dbCursor.fetchall()
+        if len(rows) != 1: # Data not found
+            return False
+        if not overwriteLevel:
+            return True
+        # Otherwise compare the level
+        level = registration_common.confidenceFromString(rows[0][0])
+        return (level > overwriteLevel)
     
     def getResult(self, mission, roll, frame):
         '''Fetches a result from the database.
            Returns None if there is no data for this frame.'''
-        
         
         self._dbCursor.execute('select * from Results where MISSION=? and ROLL=? and FRAME=?',
                                (mission, roll, frame))
@@ -130,8 +163,31 @@ CREATE TABLE Results(
         imageToProjectedTransform = self._textToTransform(row[5])
         imageInliers              = self._textToPoints(row[6])
         gdcInliers                = self._textToPoints(row[7])
+        # Currently we don't read the date
         
         return (imageToProjectedTransform, confidence, imageInliers, gdcInliers)
+
+
+    def findNearbyGoodResults(self, mission, roll, frame, frameLimit):
+        '''Find all good results within a range of frames from a given frame'''
+        
+        results = dict()
+        self._dbCursor.execute('select * from Results where MISSION=? and ROLL=?'
+                               + ' and CONFIDENCE="HIGH"'
+                               + ' and ABS(CAST(FRAME as int)-?) < ?',
+                               (mission, roll, frame, frameLimit))
+        rows = self._dbCursor.fetchall()
+        
+        for row in rows:
+            frame                     = row[2]
+            confidence                = registration_common.confidenceFromString(row[4])
+            imageToProjectedTransform = self._textToTransform(row[5])
+            imageInliers              = self._textToPoints(row[6])
+            gdcInliers                = self._textToPoints(row[7])
+            results[frame] = (imageToProjectedTransform, confidence, imageInliers, gdcInliers)
+            
+        return results
+
     
     def addResult(self, mission, roll, frame,
                   imageToProjectedTransform, confidence, imageInliers, gdcInliers):
@@ -147,15 +203,11 @@ CREATE TABLE Results(
         # May be useful to have include the time the record was added
         dateText = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        print 'Intersting into DB...'
         self._dbCursor.execute('insert or replace into Results values (?, ?, ?, ?, ?, ?, ?, ?)',
                                (mission, roll, frame, dateText, confidenceText,
                                 transformText, imagePointText, gdcPointText))
         self._dbConnection.commit()
-        print 'Done inserting.'
         return
-        
-        
         
         
         
