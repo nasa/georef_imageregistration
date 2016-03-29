@@ -165,7 +165,6 @@ def fetchSensorSeason(sensorName, bounds, date, bigRange=False):
         collection = ee.ImageCollection(sensorName).filterDate(dateStart, dateEnd).filterBounds(bounds)
         return collection
     
-    
     # Otherwise grab nearby portions of the year across several years
     fullCollection = None    
     monthRange = 3.0
@@ -174,6 +173,9 @@ def fetchSensorSeason(sensorName, bounds, date, bigRange=False):
         yearDate   = date.advance(-1.0*i, 'year')
         dateStart  = yearDate.advance(-1.0*monthRange, 'month')
         dateEnd    = yearDate.advance(     monthRange,  'month')
+        #print 'Looking in range: '
+        #print dateStart.format().getInfo()
+        #print dateEnd.format().getInfo()
         collection = ee.ImageCollection(sensorName).filterDate(dateStart, dateEnd).filterBounds(bounds)
         if fullCollection:
             fullCollection = fullCollection.merge(collection)
@@ -207,6 +209,8 @@ def findClearImage(bounds, date):
     for sensor in LANDSAT_SENSORS:
         requestString = sensor['name']
     
+        #print 'Looking for sensor: ' + requestString
+    
         #refImageCollection = ee.ImageCollection(requestString).filterDate(dateStart, dateEnd).filterBounds(bounds)
         refImageCollection = fetchSensorSeason(requestString, bounds, date)
         numRefImagesFound  = refImageCollection.size().getInfo()
@@ -218,7 +222,11 @@ def findClearImage(bounds, date):
         if numRefImagesFound < DESIRED_NUM_IMAGES:
             continue # Skip sensors without enough image data
     
-        composite = ee.Algorithms.Landsat.simpleComposite(refImageCollection, asFloat=True)
+        percentile = 50 # Default values
+        cloudScoreRange = 10
+        maxDepth = 40
+        composite = ee.Algorithms.Landsat.simpleComposite(refImageCollection,
+                                percentile, cloudScoreRange, maxDepth, asFloat=True)
         
         #cloudPercentage = getCloudPercentage(composite, rectBounds)
         #print 'Cloud percentage in composite = ' + str(cloudPercentage)
@@ -234,7 +242,7 @@ def findClearImage(bounds, date):
         return (composite, bestSensor)
         
 
-    # If we made it here then we failed to find a any images!
+    # If we made it here then we failed to find any images!
     
     raise Exception('Did not find enough landsat images in the requested region: ' + str(bounds.getInfo()))
 
@@ -300,8 +308,11 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     #print 'Computed scale = ' + str(scale)
 
     #print date
-    eeDate = ee.Date.parse('YYYY.MM.DD', date)
-        
+    eeDate = ee.Date.parse('YYYY.MM.dd', date)
+    #print 'Input date:'
+    #print eeDate.format().getInfo()
+
+
     #try:
     #image = findClearImage(bounds, dateStart, dateEnd)
     (image, sensor) = findClearImage(bounds, eeDate)
@@ -327,14 +338,29 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     #print minVal
     #print maxVal
     
+    # TODO: Tweak these by sensor or location!
     #landsatVisParams = {'bands': sensor['rgbBands'], 'min': 0, 'max': 128}
     landsatVisParams = {'bands': sensor['rgbBands'], 'min': 0, 'max': 0.4}
     #landsatVisParams = {'bands': sensor['rgbBands'], 'min': minVal, 'max': maxVal}
     #landsatVisParams = {'bands': sensor['rgbBands'], 'gain': '1.8, 1.5, 1.0'}
-    miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
-
-    # Return percent valid pixels and the resolution we used.
-    return (percentValid, mppToUse)
+    
+    # Download the image and return percent valid pixels and the resolution we used.
+    # - Earth Engine sometimes fails so try a few times before giving up.
+    
+    NUM_RETRIES = 3
+    numTries = 0
+    while True:
+        if numTries < (NUM_RETRIES-1):
+            try:
+                miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
+                return (percentValid, mppToUse)
+            except Exception: # First tries, ignore the exception
+                pass
+            numTries += 1
+        else: # Last pass, don't catch the exception.
+            miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
+            return (percentValid, mppToUse)
+    
 
 
 #======================================================================================================
@@ -343,7 +369,9 @@ def main():
     # TODO: Command line interface
 
     #fetchReferenceImage(-109.276799, -27.125795, 'ref_image.tif')
-    fetchReferenceImage(-91.13, 33.00, 50, '2002.06.06', 'ref_image.tif')
+    #fetchReferenceImage(-91.13, 33.00, 50, '2002.06.06', 'ref_image.tif')
+    #fetchReferenceImage(-74.01283, 40.70338, 25, '2015.04.11', 'ref_image.tif')
+    fetchReferenceImage(59.5, 46, 25, '2005.06.03', 'ref_image.tif')
 
     # TODO: Return code
 

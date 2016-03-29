@@ -220,8 +220,12 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   // Adaptively set the number of features
   int nfeaturesRef   = numPixelsRef   / 850;
   int nfeaturesMatch = numPixelsMatch / 850;
-  if (nfeaturesRef   < 1000) nfeaturesRef   = 1000;
-  if (nfeaturesMatch < 1000) nfeaturesMatch = 1000;
+  const int MIN_FEATURES =  3000;
+  const int MAX_FEATURES = 15000;
+  if (nfeaturesRef   < MIN_FEATURES) nfeaturesRef   = MIN_FEATURES;
+  if (nfeaturesMatch < MIN_FEATURES) nfeaturesMatch = MIN_FEATURES;
+  if (nfeaturesRef   > MAX_FEATURES) nfeaturesRef   = MAX_FEATURES;
+  if (nfeaturesMatch > MAX_FEATURES) nfeaturesMatch = MAX_FEATURES;
   printf("Using %d reference features.\n", nfeaturesRef);
   printf("Using %d match features.\n",     nfeaturesMatch);
   

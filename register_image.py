@@ -4,13 +4,14 @@ import argparse
 import subprocess
 import traceback
 import tempfile
+import math
 import numpy
 import ImageFetcher.fetchReferenceImage
 import IrgStringFunctions, IrgGeoFunctions
 
-#basepath    = os.path.abspath(sys.path[0]) # Scott debug
-#sys.path.insert(0, basepath + '/../geocamTiePoint')
-#sys.path.insert(0, basepath + '/../geocamUtilWeb')
+basepath    = os.path.abspath(sys.path[0]) # Scott debug
+sys.path.insert(0, basepath + '/../geocamTiePoint')
+sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
 from geocamTiePoint import transform
 from django.conf import settings
@@ -19,8 +20,6 @@ import registration_common
 
 #======================================================================================
 # Supporting functions
-
-
 
 def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransform=None):
     '''Converts an image-to-image homography to the ProjectiveTransform
@@ -32,15 +31,19 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
     temp = numpy.array([tform[0:3], tform[3:6], tform[6:9]] )
     imageToRefTransform = transform.ProjectiveTransform(temp)
 
-    newImageSize = registration_common.getImageSize(newImagePath)
+    newImageSize = IrgGeoFunctions.getImageSize(newImagePath)
+    refImageSize = IrgGeoFunctions.getImageSize(refImagePath)
 
     # Get a pixel to GDC transform for the reference image
     refPixelToGdcTransform = registration_common.getPixelToGdcTransform(
-                                            refImagePath, refImageGeoTransform)
+                                                  refImagePath, refImageGeoTransform)
 
     # Generate a list of point pairs
     imagePoints = []
     worldPoints = []
+    
+    
+    print 'transform = \n' + str(imageToRefTransform.matrix)
     
     # Loop through an evenly spaced grid of pixels in the new image
     # - For each pixel, compute the desired output coordinate
@@ -50,6 +53,11 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
             # Get pixel in new image and matching pixel in the reference image
             thisPixel       = numpy.array([float(c), float(r)])
             pixelInRefImage = imageToRefTransform.forward(thisPixel)
+
+            # If any pixel transforms outside the reference image our transform
+            # is probably invalid but continue on skipping this pixel.
+            if not registration_common.isPixelValid(thisPixel, refImageSize):
+                continue
 
             # Compute the location of this pixel in the projected coordinate system
             #  used by the transform.py file.
@@ -66,8 +74,10 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
 
     # Compute a transform object that converts from the new image to projected coordinates
     #print 'Converting transform to world coordinates...'
-    testImageToProjectedTransform = transform.getTransform(numpy.asarray(worldPoints),
-                                                           numpy.asarray(imagePoints))
+    #testImageToProjectedTransform = transform.getTransform(numpy.asarray(worldPoints),
+    #                                                       numpy.asarray(imagePoints))
+    testImageToProjectedTransform = transform.ProjectiveTransform.fit(numpy.asarray(worldPoints),
+                                                                      numpy.asarray(imagePoints))
     
     #print refPixelToGdcTransform
     #print testImageToProjectedTransform
@@ -144,8 +154,10 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
     (tform, confidence, imageInliers, refInliers) = \
             registration_common.alignScaledImages(imagePath, refImagePath, inputScaling, workPrefix, force, debug, slowMethod)
 
+    # If we failed, just return dummy information with zero confidence.
     if (confidence == registration_common.CONFIDENCE_NONE):
-        raise Exception('Failed to compute tranform!')
+        return (registration_common.getIdentityTransform(),
+                registration_common.CONFIDENCE_NONE, [], [], 0)
 
     # Convert the transform into a pixel-->Projected coordinate transform
     (imageToProjectedTransform, refImageToGdcTransform) = \
@@ -157,9 +169,8 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
     for pix in refInliers:
         gdcCoordinate = refImageToGdcTransform.forward(pix)
         gdcInliers.append(gdcCoordinate)
-    #print gdcInliers
 
-    return (imageToProjectedTransform, confidence, imageInliers, gdcInliers)
+    return (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel)
 
 
 def test():

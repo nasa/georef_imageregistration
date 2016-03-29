@@ -40,3 +40,64 @@ Takes optional fields (referencedImagePath and referencedGeoTransform), which ta
 This is good when there are sequence of images of the same area.
 
 registerImage.py is the main function.
+
+==============================
+
+Offline processing TODO:
+
+
+- File describing the input data system?
+
+- Integration with the GUI
+
+- Import to DB
+    - Partially done.
+
+- Handle overwrite options better, including re-fetch
+
+- Test new uncertainty description once ImageMagick is installed
+    
+    
+- Small amounts of clouds cause all the match image IP to fall on them!
+  What can we do to alleviate this effect?
+- Snow covered images have a similar effect.
+- Some LANDSAT processed images look like snow, but maybe we are preprocessing
+  them incorrectly.
+  
+--> Check image saturation and re-process if too much white?  
+  
+- Performance is MUCH better on images which have similar lighting/color
+  conditions.  Could possibly get significant improvements by improving
+  our image preprocessing steps.
+  
+- Set up cron job.
+    - How do new images come in?
+        - When they get added to the database?
+    - Where are they going to be located?
+    - If there is not a consistent pattern, how do we find them?
+
+
+- Double check batch local matching
+- Verify that we can process one from each mission
+
+- Eventually re-run everything to improve worse results we may have.
+  - Landsat images also need to be re-fetched.
+
+
+024881 local match?
+071138
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
