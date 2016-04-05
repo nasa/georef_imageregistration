@@ -25,10 +25,15 @@ def safeMakeDir(folder):
 def getWorkingPath(mission, roll, frame):
     '''Get a good location to process this image.'''
     
+    if offline_config.USE_RAW:
+        ext = '.tif'
+    else:
+        ext = '.jpg'
+    
     # Generate a file name similar to the RAW storage scheme
     FRAME_DIGITS = 6
     zFrame   = frame.rjust(FRAME_DIGITS, '0')
-    filename = mission.lower() + roll.lower() + zFrame + '.tif'
+    filename = mission.lower() + roll.lower() + zFrame + ext
     
     # Break up frames so that there are 1000 per folder
     FRAMES_PER_FOLDER = 1000
@@ -111,14 +116,27 @@ def findNearbyResults(mission, roll, frame, cursor, dbLog):
     return results
     
     
-def getRawTiffFile(mission, roll, frame, rawPath):
-    '''Get the path to the coverted RAW file, generating it if needed'''
+def getSourceImage(frameDbData, overwrite=False):
+    '''Obtains the source image we will work on, ready to use.'''
     
-    print 'Converting RAW to TIF...'
-    plainTiffPath = getWorkingPath(mission, roll, frame)
-    if not os.path.exists(plainTiffPath):
-        source_database.convertRawFileToTiff(rawPath, plainTiffPath)
-    return plainTiffPath
+    outputPath = getWorkingPath(frameDbData.mission, frameDbData.roll, frameDbData.frame)
+    if os.path.exists(outputPath) and (not overwrite):
+        return outputPath
+    
+    if offline_config.USE_RAW:
+        print 'Converting RAW to TIF...'
+        source_database.convertRawFileToTiff(frameDbData.rawPath, outputPath)
+    else: # JPEG input
+        print 'Grabbing JPEG'
+        # Download to a temporary file
+        tempPath = outputPath + '-temp.jpeg'
+        source_database.grabJpegFile(frameDbData.mission, frameDbData.roll, frameDbData.frame, tempPath)
+        # Crop off the label if it exists
+        registration_common.cropImageLabel(tempPath, outputPath)
+        os.remove(tempPath) # Clean up temp file
+        
+    return outputPath
+
 
 def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
     '''Process a single specified frame.
@@ -138,7 +156,7 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
     # TODO: Make sure everything properly handles existing data!
     
     # We can't operate on the RAW file, so convert it to TIF.
-    plainTiffPath   = getRawTiffFile(mission, roll, frame, frameDbData.rawPath)
+    sourceImagePath = getSourceImage(frameDbData)
     
     # Estimate the pixel resolution on the ground
     metersPerPixel = registration_common.estimateGroundResolution(frameDbData.focalLength,
@@ -171,17 +189,17 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
             print 'Trying local match with frame: ' + str(otherFrame.frame)
             
             # Get path to other frame image
-            otherTiffPath  = getRawTiffFile(otherFrame.mission, otherFrame.roll, otherFrame.frame, otherFrame.rawPath)
+            otherImagePath = getSourceImage(otherFrame)
             otherTransform = ourResult[0] # This is still in the google projected format
             
             print 'otherTransform = ' + str(otherTransform.matrix)
             
             print 'Attempting to register image...'
             (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
-                register_image.register_image(plainTiffPath,
+                register_image.register_image(sourceImagePath,
                                               frameDbData.centerLon, frameDbData.centerLat,
                                               metersPerPixel, frameDbData.date,
-                                              refImagePath         =otherTiffPath,
+                                              refImagePath         =otherImagePath,
                                               referenceGeoTransform=otherTransform,
                                               debug=True, force=True, slowMethod=False)
             
@@ -191,7 +209,7 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
                 # Convert from the image-to-image GCPs to the reference image GCPs
                 #  located in the new image.
                 refFrameGdcInliers = ourResult[3] # TODO: Clean this up!
-                (width, height)    = IrgGeoFunctions.getImageSize(plainTiffPath)
+                (width, height)    = IrgGeoFunctions.getImageSize(sourceImagePath)
                 
                 (imageInliers, gdcInliers) = registration_common.convertGcps(refFrameGdcInliers,
                                                     imageToProjectedTransform, width, height)
@@ -212,11 +230,11 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
         
         print 'Attempting to register image...'
         (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
-            register_image.register_image(plainTiffPath,
+            register_image.register_image(sourceImagePath,
                                           frameDbData.centerLon, frameDbData.centerLat,
                                           metersPerPixel, frameDbData.date,
                                           refImagePath=None,
-                                          debug=True, force=False, slowMethod=True)
+                                          debug=True, force=True, slowMethod=True)
 
 
     # A very rough estimation of localization error at the inlier locations!
@@ -228,34 +246,65 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
 
     if confidence == registration_common.CONFIDENCE_HIGH:
         print 'Generating output geotiffs...'
-        recordOutputImages(plainTiffPath, imageInliers, gdcInliers, errorMeters, overwrite=True)   
+        recordOutputImages(sourceImagePath, imageInliers, gdcInliers, errorMeters, overwrite=True)   
     
     print 'Finished processing frame'
     return True
 
 
-def recordOutputImages(plainTiffPath, imageInliers, gdcInliers, minUncertaintyMeters, overwrite=True):
+# TODO: A function to determine how much the JPEG images are cropped compared to the RAW images!
+def detectCropAmount():
+    return 6
+
+
+# The crop amount is NOT CONSTANT across missions
+# - Since we only adjust the pixel coordinates, we don't have to worry about the
+#   possible label bar at the bottom of the image.
+def adjustGcpsForJpegCrop(inputPoints, inputGdc, cropAmount=6):
+    '''Updates image pixel coordinates to reflect than cropping along each edge ocurred.'''
+
+    outputPoints = []
+    outputGdc    = []
+    for (pixel, gdc) in zip(inputPoints, inputGdc):
+        
+        # Adjust the pixel and make sure it did not go off the edge
+        newPixel = (pixel[0]-cropAmount, pixel[1]-cropAmount)
+        if (newPixel[0] < 0) or (newPixel[1] < 0):
+            continue
+        # Buuld output lists
+        outputPoints.append(newPixel)
+        outputGdc.append(gdc)
+        
+    return (outputPoints, outputGdc)
+
+
+
+def recordOutputImages(sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters, overwrite=True):
     '''Generates all the output image files that we create for each successfully processed image.'''
+    
+    # TODO: Generate the output images from JPEG images instead of TIFF images.
+    #       - The JPEG images are cropped by six pixels at each edge, so update the
+    #         image inlier list appropriately.
     
     # We generate two pairs of images, one containing the image data
     #  and another with the same format but containing the uncertainty distances.
-    geotiffOutputPrefix     = os.path.splitext(plainTiffPath)[0]
+    geotiffOutputPrefix     = os.path.splitext(sourceImagePath)[0]
     uncertaintyOutputPrefix = geotiffOutputPrefix + '-uncertainty'
     rawUncertaintyPath      = geotiffOutputPrefix + '-uncertainty_raw.tif'
     
     # Create the raw uncertainty image
-    (width, height) = IrgGeoFunctions.getImageSize(plainTiffPath)
-    #registration_common.generateUncertaintyImage(width, height, imageInliers,
-    #                                             minUncertaintyMeters, rawUncertaintyPath)
+    (width, height) = IrgGeoFunctions.getImageSize(sourceImagePath)
+    rmsError = registration_common.generateUncertaintyImage(width, height, imageInliers,
+                                                            minUncertaintyMeters, rawUncertaintyPath)
     
     # Generate the two pairs of images in the same manner
-    registration_common.generateGeotiff(plainTiffPath, geotiffOutputPrefix, imageInliers, gdcInliers,
-                                        overwrite=True)
-    #registration_common.generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
-    #                                    overwrite=True)
+    registration_common.generateGeotiff(sourceImagePath, geotiffOutputPrefix, imageInliers, gdcInliers,
+                                        rmsError, overwrite=True)
+    registration_common.generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
+                                        rmsError, overwrite=True)
     
     # Clean up the raw uncertainty image
-    #os.remove(rawUncertaintyPath)
+    os.remove(rawUncertaintyPath)
 
 
 
@@ -410,9 +459,9 @@ def test():
     #(mission, roll, frame) = ('ISS043', 'E', '122588') # Good only on lake
     #(mission, roll, frame) = ('ISS044', 'E', '868')    # Should be better
     #(mission, roll, frame) = ('ISS044', 'E', '1998')   # Tough image
-    #(mission, roll, frame) = ('ISS043', 'E', '101805') # Landsat brightness issue
+    #(mission, roll, frame) = ('ISS043', 'E', '101805') # Large city, need tons of IP.
     
-    (mission, roll, frame) = ('ISS043', 'E', '39938') # Would be nice to get this!
+    (mission, roll, frame) = ('ISS043', 'E', '39938') # Another IP count problem?
     
     #(mission, roll, frame) = ('ISS043', 'E', '101751') # Would be nice to get this!
     #(mission, roll, frame) = ('ISS043', 'E', '101848') # Would be nice to get this!

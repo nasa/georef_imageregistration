@@ -6,6 +6,7 @@ import subprocess
 import traceback
 import json
 import numpy
+import shutil
 import IrgGeoFunctions
 
 basepath    = os.path.abspath(sys.path[0]) # Scott debug
@@ -329,7 +330,8 @@ def convertGcps(inputGdcCoords, imageToProjectedTransform, width, height):
 
 def generateUncertaintyImage(width, height, imageInliers, minUncertainty, outputPath):
     '''Given a list of GCPs in an image, generate a distance image containing the
-       distance from each pixel to the nearest GCP location.'''
+       distance from each pixel to the nearest GCP location.
+       Returns the RMS error.'''
     
     # Create a white image with black dots at each GCP coordinate
     drawLine = ''
@@ -346,7 +348,7 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
         raise Exception('Failed to generate GCP point image!')
 
     # Get the distance from each 
-    cmd2 = ('convert '+tempPath+' -morphology Distance Euclidean:1,1 '+ tempPath2)
+    cmd2 = ('convert '+tempPath1+' -morphology Distance Euclidean:1,1 '+ tempPath2)
     print cmd2
     os.system(cmd2)
     if not os.path.exists(tempPath2):
@@ -365,19 +367,60 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     
     # Use gdal_translate to convert from Uint16 to a scaled 32 bit floating point image
     #  with the final error numbers.
-    cmd3 = ('gdal_translate -ot Float32 -scale '+uncertaintyString+ tempPath2 + outputPath)
+    cmd3 = ('gdal_translate -b 1 -ot Float32 -scale '+uncertaintyString+ tempPath2 +' '+ outputPath)
     print cmd3
     os.system(cmd3)
     if not os.path.exists(outputPath):
         raise Exception('Failed to generate uncertainty image!')
 
+    # Compute the RMS error using a simple command line tool
+    #cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
+    cmdPath = 'build/computeImageRms'
+    cmd4    = [cmdPath, outputPath]
+    print cmd4
+    p = subprocess.Popen(cmd4, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+    
+    # Parse the line "RMS: 123"
+    parts    = textOutput.split(':')
+    rmsError = float(parts[1])
+
     # Clean up
     os.remove(tempPath1)
     os.remove(tempPath2)
+    
+    return rmsError
+
+
+def cropImageLabel(jpegPath, outputPath):
+    '''Create a copy of a jpeg file with any label cropped off'''
+    
+    # Check if there is a labelusing a simple command line tool
+    #cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
+    cmdPath = 'build/detectImageTag'
+    cmd    = [cmdPath, jpegPath]
+    print cmd
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+    
+    # The label is always the same number of pixels
+    CROP_AMOUNT = 56
+    
+    if 'NO_LABEL' in textOutput:
+        # The file is fine, just copy it.
+        shutil.copy(jpegPath, outputPath)
+    else:
+        # Trim the label off of the bottom of the image
+        imageSize    = IrgGeoFunctions.getImageSize(jpegPath)
+        imageSize[1] = imageSize[1] - CROP_AMOUNT
+        cmd = ('gdal_translate -srcwin 0 0 ' + str(imageSize[0]) +' '+ str(imageSize[1]) +' '+
+               jpegPath +' '+ outputPath)
+        print cmd
+        os.system(cmd)
 
 
 
-def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, overwrite=False):
+def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, overwrite=False):
     '''Converts a plain tiff to a geotiff using the provided geo information.'''
 
     # Check inputs
@@ -393,8 +436,9 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, overwrite=F
     # TODO - This may not be useful unless we can duplicate how they processed their RAW data!
     if (not os.path.exists(noWarpOutputPath)) or overwrite:
         print 'Generating UNWARPED output tiff'
-        cmd = ('gdal_translate -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2" -a_srs "'
-              + OUTPUT_PROJECTION +'" '+ imagePath +' '+ noWarpOutputPath)
+        cmd = ('gdal_translate -mo RMS_UNCERTAINTY='+str(rmsError)
+               + ' -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2" -a_srs "'
+               + OUTPUT_PROJECTION +'" '+ imagePath +' '+ noWarpOutputPath)
         
         ## Include an arbitrary tag with our estimated error amount
         #if errorMeters:
@@ -430,7 +474,8 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, overwrite=F
         print cmd
         os.system(cmd)
         # Add some extra metadata fields.
-        cmd2 = ('gdal_edit.py -mo RESAMPLING_METHOD=cubic -mo WARP_METHOD=poly_order_1 ' + warpOutputPath)
+        cmd2 = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= -mo RMS_UNCERTAINTY=' +str(rmsError)
+                + ' -mo RESAMPLING_METHOD=cubic -mo WARP_METHOD=poly_order_1 ' + warpOutputPath)
         print cmd2
         os.system(cmd2)
         

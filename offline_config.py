@@ -18,7 +18,8 @@ DCRAW_PATH = '/home/smcmich1/repo/dcraw/dcraw'
 # Top level folder containing the input RAW images
 RAW_IMAGE_FOLDER = '/media/network/ImagesDrop/RawESC'
 
-
+# We can either process the RAW file or an already converted JPEG file
+USE_RAW = False
 
 # ==================================================
 # Output paths
@@ -46,6 +47,8 @@ MAX_CLOUD_PERCENTAGE_INT = int(MAX_CLOUD_PERCENTAGE*100)
 # ==================================================
 # ==================================================
 # Processing settings
+
+
 
 
 

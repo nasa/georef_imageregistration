@@ -55,20 +55,23 @@ Offline processing TODO:
 
 - Handle overwrite options better, including re-fetch
 
-- Test new uncertainty description once ImageMagick is installed
-    
-    
-- Small amounts of clouds cause all the match image IP to fall on them!
-  What can we do to alleviate this effect?
-- Snow covered images have a similar effect.
-- Some LANDSAT processed images look like snow, but maybe we are preprocessing
-  them incorrectly.
+- Tune the uncertainty constants
+
+- IP registration improvements:    
+    - Small amounts of clouds cause all the match image IP to fall on them!
+      What can we do to alleviate this effect?
+    - Snow covered images have a similar effect.
+    - Large cities and some other detailed regions fail because the IP are scattered around the entire image
+      and we don't have enough density to find the small ISS image without a massive run time.
+      - Could just use a huge amount of IP...
+      - Try a first-pass registration at a lower resolution?
+      - Try a second-pass registration based on an initial low-confidence registration?
+
+    - Check image saturation and re-process if too much white?  
   
---> Check image saturation and re-process if too much white?  
-  
-- Performance is MUCH better on images which have similar lighting/color
-  conditions.  Could possibly get significant improvements by improving
-  our image preprocessing steps.
+    - Performance is MUCH better on images which have similar lighting/color
+      conditions.  Could possibly get significant improvements by improving
+      our image preprocessing steps.
   
 - Set up cron job.
     - How do new images come in?
