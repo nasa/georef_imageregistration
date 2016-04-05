@@ -70,8 +70,11 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_executable( registerGeocamImage registerGeocamImage.cpp )
 target_link_libraries( registerGeocamImage ${OpenCV_LIBS})
 
+add_executable( computeImageRms computeImageRms.cpp )
+target_link_libraries( computeImageRms ${OpenCV_LIBS})
 
-
+add_executable( detectImageTag detectImageTag.cpp )
+target_link_libraries( detectImageTag ${OpenCV_LIBS})
 
 
 
