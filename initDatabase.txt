@@ -101,7 +101,6 @@ CREATE TABLE Georef(
 
 
 
-
 DROP TABLE Captions;
 CREATE TABLE Captions(
   MISSION   TEXT    NOT NULL,

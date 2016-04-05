@@ -5,7 +5,7 @@ import os, sys
 import subprocess
 import sqlite3
 #from pysqlite2 import dbapi2 as sqlite3
-
+import urllib2
 import offline_config
 
 import registration_common
@@ -26,6 +26,10 @@ some of the input file formats.
 
 def getFrameString(mission, roll, frame):
     return (mission +', '+ roll +', '+ frame)
+
+# The official RAW conversion method uses Photoshop's RAW plugin.
+# Largest JPEG image: Crop away six pixels on each edge.
+# Low Res JPEG image: As largest, then resize large edge to 640 and keep the resolution.
 
 # TODO: Play around with this to get the best possible output images
 def convertRawFileToTiff(rawPath, outputPath):
@@ -55,6 +59,25 @@ def getRawImageSize(rawPath):
         height = int(parts[4])
         return (width, height)
     raise Exception('Unable to determine size of image: ' + rawPath)
+
+def grabJpegFile(mission, roll, frame, outputPath):
+    '''Fetches a full size jpeg image from the ISS website'''
+    
+    # Get the data URL
+    url = (('http://eol.jsc.nasa.gov/DatabaseImages/ESC/large/%s/%s-%s-%s.JPG') %
+           (mission, mission, roll, frame) )
+    
+    # Download the data
+    print 'Downloading image from ' + url
+    data = urllib2.urlopen(url)
+    with open(outputPath, 'wb') as fp:
+        while True:
+            chunk = data.read(16 * 1024)
+            if not chunk:
+                break
+            fp.write(chunk)
+    print 'Download complete!'
+
 
 #=======================================================
 # Primary file info grabbing functions
