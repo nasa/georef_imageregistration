@@ -45,13 +45,57 @@ registerImage.py is the main function.
 
 Offline processing TODO:
 
+Multiple simultaneous processes!
+
+MYSQL server:
+localhost
+vagrant/vagrant
+
+Verify local is working:
+iss027 - 005051, 50
+
+No local:
+MISSION	-->	TOTAL	NONE	LOW	HIGH	HIGH_FRACTION
+ISS027	-->	1710	638 	499	573 	0.34
+Local: 
+MISSION	-->	TOTAL	NONE	LOW	HIGH	HIGH_FRACTION
+ISS027	-->	1710	990	    15	705	    0.41
+
+
+
+Examples for demo:
+43-122588 = -22.2, -67.8  --> Dist = 4000m
+44-903    = -15.5, 123.2  --> Dist = 3600m
+44-868    = -21.7, 115.1  --> Dist = 5600m
+44-1998   =  34.7,  10.8  --> Dist = 6600m
+
+
+
+--> Final idealized design
+    = Multiple asynchronous processes that all feed into the same SQL database.
+        - Image detector = Add new images to the DB.
+        - Metadata fetcher = Fetch ISS metadata.
+        - Geosense fetcher = Add Geosense metadata.
+        - Image matcher = Perform image alignment, generate GCP list.
+        - Output generator = Use GCPs to generate final output image.
+        --> The georef GUI will only edit SQL rows and flag the output generator.
+
+-> Use a common info fetching function for frame, similar to what we have now.
+    - Each tool can access just the info it needs.
+
+
+- Switch from SQLite to MYSQL
+    - Waiting on new DB to stabilize
+
+- Port functionality from command line tool to seperate command line async processes.
+
+- Expand/improve DB wrapper classes so all tools and GUI can use the wrapper.
+    - Started new MySQL wrapper
+
+
+
 
 - File describing the input data system?
-
-- Integration with the GUI
-
-- Import to DB
-    - Partially done.
 
 - Handle overwrite options better, including re-fetch
 
@@ -73,23 +117,9 @@ Offline processing TODO:
       conditions.  Could possibly get significant improvements by improving
       our image preprocessing steps.
   
-- Set up cron job.
-    - How do new images come in?
-        - When they get added to the database?
-    - Where are they going to be located?
-    - If there is not a consistent pattern, how do we find them?
-
 
 - Double check batch local matching
-- Verify that we can process one from each mission
-
-- Eventually re-run everything to improve worse results we may have.
-  - Landsat images also need to be re-fetched.
-
-
-024881 local match?
-071138
-
+- Verify that we can process from each mission
 
 
 

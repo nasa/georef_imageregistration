@@ -4,7 +4,6 @@
 import os, sys
 import subprocess
 import sqlite3
-#from pysqlite2 import dbapi2 as sqlite3
 import urllib2
 import offline_config
 
@@ -42,6 +41,33 @@ def convertRawFileToTiff(rawPath, outputPath):
     os.system(cmd)
     if not os.path.exists(outputPath):
         raise Exception('Failed to convert input file ' + rawPath)
+
+
+
+
+def getSourceImage(frameInfo, overwrite=False):
+    '''Obtains the source image we will work on, ready to use.
+       Downloads it, converts it, or whatever else is needed.
+       Has a fixed location where the image is written to.'''
+    
+    outputPath = registration_common.getWorkingPath(frameInfo.mission, frameInfo.roll, frameInfo.frame)
+    if os.path.exists(outputPath) and (not overwrite):
+        return outputPath
+    
+    if offline_config.USE_RAW:
+        print 'Converting RAW to TIF...'
+        convertRawFileToTiff(frameInfo.rawPath, outputPath)
+    else: # JPEG input
+        print 'Grabbing JPEG'
+        # Download to a temporary file
+        tempPath = outputPath + '-temp.jpeg'
+        grabJpegFile(frameInfo.mission, frameInfo.roll, frameInfo.frame, tempPath)
+        # Crop off the label if it exists
+        registration_common.cropImageLabel(tempPath, outputPath)
+        os.remove(tempPath) # Clean up temp file
+        
+    return outputPath
+
 
 
 def getRawImageSize(rawPath):
@@ -276,6 +302,10 @@ class FrameInfo(object):
         self.nadirLon        = float(rows[22])
         self.camera          = str(rows[23]).strip()
         self.film            = str(rows[24]).strip()
+        self.metersPerPixel  = None # This information is not stored in the database
+        
+        # Clean up the time format
+        self.time = self.time[0:2] +':'+ self.time[2:4] +':'+ self.time[4:6]
         
         # The input tilt can be in letters or degrees so convert
         #  it so that it is always in degrees.
@@ -355,6 +385,9 @@ class FrameInfo(object):
            Currently works in degree units.'''
         return (abs(self.centerLon - lon) < dist) and (abs(self.centerLat - lat) < dist)
     
+    def getIdString(self):
+        '''Return the id consistent with our internal conventions'''
+        return self.mission+'-'+self.roll+'-'+self.frame
 
 def getMissionList(cursor):
     '''Returns a list of the supported missions'''
@@ -370,15 +403,22 @@ def getMissionList(cursor):
     
     return missionList
 
-def getCandidatesInMission(cursor, mission, roll=None, frame=None):
+def getCandidatesInMission(cursor, mission=None, roll=None, frame=None, checkCoords=True):
     '''Fetch a list of likely alignment candidates for a mission.
        Optionally filter by roll and frame.'''
 
     # Look up records for the mission that we may be able to process
-    cmd = ('select ROLL, FRAME from Frames where trim(MISSION)="'+mission
-           +'" and nullif(LON, "") notnull and nullif(LAT, "") notnull and nullif(CAMERA, "") notnull')
+    
+    cmd = ('select MISSION, ROLL, FRAME, LON, LAT from Frames where nullif(CAMERA, "") notnull')
+    
+    # If requested, verify that the lon and lat values are present.
+    if checkCoords:
+        cmd += ' and nullif(LON, "") notnull and nullif(LAT, "") notnull'
+
     
     # If specified, apply these filters.
+    if mission:
+        cmd += ' and trim(MISSION)="'+mission+'"'
     if roll:
         cmd += ' and trim(ROLL)="'+roll+'"'
     if frame:
@@ -396,10 +436,15 @@ def getCandidatesInMission(cursor, mission, roll=None, frame=None):
     # Extract the results into a nice list
     results = []
     for row in rows:
-        roll  = row[0].strip()
-        frame = row[1].strip()
-        results.append((mission, roll, frame))
-        
+        #print row
+        mission = row[0].strip()
+        roll    = row[1].strip()
+        frame   = row[2].strip()
+        lon     = row[3] # TODO: Handle NULLs
+        lat     = row[4]
+        results.append((mission, roll, frame, lon, lat))
+    #print cmd
+    #raise Exception('DEBUG')
     return results
 
 
