@@ -59,7 +59,8 @@ def convertTransformToGeo(imageToRefImageTransform, newImagePath, refImagePath, 
 
             # If any pixel transforms outside the reference image our transform
             # is probably invalid but continue on skipping this pixel.
-            if not registration_common.isPixelValid(thisPixel, refImageSize):
+            if ((not registration_common.isPixelValid(thisPixel, newImageSize)) or
+                (not registration_common.isPixelValid(pixelInRefImage, refImageSize))):
                 continue
 
             # Compute the location of this pixel in the projected coordinate system
