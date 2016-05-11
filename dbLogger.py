@@ -208,6 +208,3 @@ class DatabaseLogger(object):
                                 transformText, imagePointText, gdcPointText))
         self._dbConnection.commit()
         return
-        
-        
-        

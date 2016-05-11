@@ -138,7 +138,7 @@ def getSourceImage(frameDbData, overwrite=False):
     return outputPath
 
 
-def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
+def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False, debug=False):
     '''Process a single specified frame.
        Returns True if we attempted to perform image alignment and did not hit an exception.'''
 
@@ -195,13 +195,13 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
             print 'otherTransform = ' + str(otherTransform.matrix)
             
             print 'Attempting to register image...'
-            (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
+            (imageToProjectedTransform, imageToGdcTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
                 register_image.register_image(sourceImagePath,
                                               frameDbData.centerLon, frameDbData.centerLat,
                                               metersPerPixel, frameDbData.date,
                                               refImagePath         =otherImagePath,
                                               referenceGeoTransform=otherTransform,
-                                              debug=True, force=True, slowMethod=False)
+                                              debug=debug, force=True, slowMethod=False)
             
             # Quit once we get a good match
             if confidence == registration_common.CONFIDENCE_HIGH:
@@ -229,12 +229,12 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
     else: # Try to register the image to Landsat
         
         print 'Attempting to register image...'
-        (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
+        (imageToProjectedTransform, imageToGdcTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
             register_image.register_image(sourceImagePath,
                                           frameDbData.centerLon, frameDbData.centerLat,
                                           metersPerPixel, frameDbData.date,
                                           refImagePath=None,
-                                          debug=True, force=True, slowMethod=True)
+                                          debug=debug, force=True, slowMethod=True)
 
 
     # A very rough estimation of localization error at the inlier locations!
@@ -246,7 +246,13 @@ def processFrame(mission, roll, frame, cursor, dbLog, searchNearby=False):
 
     if confidence == registration_common.CONFIDENCE_HIGH:
         print 'Generating output geotiffs...'
-        recordOutputImages(sourceImagePath, imageInliers, gdcInliers, errorMeters, overwrite=True)   
+        outputPrefix = os.path.splitext(sourceImagePath)[0]
+        registration_common.recordOutputImages(sourceImagePath, outputPrefix,
+                                               imageInliers, gdcInliers, errorMeters, overwrite=True)   
+    
+    # If we had to convert RAW to TIFF, remove the TIFF file we created to save on space.
+    if offline_config.USE_RAW:
+        os.remove(sourceImagePath)
     
     print 'Finished processing frame'
     return True
@@ -278,44 +284,15 @@ def adjustGcpsForJpegCrop(inputPoints, inputGdc, cropAmount=6):
     return (outputPoints, outputGdc)
 
 
-
-def recordOutputImages(sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters, overwrite=True):
-    '''Generates all the output image files that we create for each successfully processed image.'''
-    
-    # TODO: Generate the output images from JPEG images instead of TIFF images.
-    #       - The JPEG images are cropped by six pixels at each edge, so update the
-    #         image inlier list appropriately.
-    
-    # We generate two pairs of images, one containing the image data
-    #  and another with the same format but containing the uncertainty distances.
-    geotiffOutputPrefix     = os.path.splitext(sourceImagePath)[0]
-    uncertaintyOutputPrefix = geotiffOutputPrefix + '-uncertainty'
-    rawUncertaintyPath      = geotiffOutputPrefix + '-uncertainty_raw.tif'
-    
-    # Create the raw uncertainty image
-    (width, height) = IrgGeoFunctions.getImageSize(sourceImagePath)
-    rmsError = registration_common.generateUncertaintyImage(width, height, imageInliers,
-                                                            minUncertaintyMeters, rawUncertaintyPath)
-    
-    # Generate the two pairs of images in the same manner
-    registration_common.generateGeotiff(sourceImagePath, geotiffOutputPrefix, imageInliers, gdcInliers,
-                                        rmsError, overwrite=True)
-    registration_common.generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
-                                        rmsError, overwrite=True)
-    
-    # Clean up the raw uncertainty image
-    os.remove(rawUncertaintyPath)
-
-
-
 def processMission(inputDb, outputDb, mission, roll=None, frame=None, localSearch=False,
-                   processLimit=None, overwriteLevel=None):
+                   processLimit=None, overwriteLevel=None, debug=False):
     '''Processes the specified data'''
     
     inputCursor = inputDb.cursor()
     
     # Look up records for the mission that we may be able to process
-    processingCandidates = source_database.getCandidatesInMission(inputCursor, mission, roll, frame)
+    checkCoords = not localSearch
+    processingCandidates = source_database.getCandidatesInMission(inputCursor, mission, roll, frame, checkCoords)
     
     print 'Found ' + str(len(processingCandidates)) + ' images to process.'
     numProcessed = 0
@@ -332,7 +309,7 @@ def processMission(inputDb, outputDb, mission, roll=None, frame=None, localSearc
             continue
 
         try:
-            result = processFrame(mission, roll, frame, inputCursor, outputDb, localSearch)
+            result = processFrame(mission, roll, frame, inputCursor, outputDb, localSearch, debug)
         except Exception as e:
             result    = False           
             errString = str(e)
@@ -377,6 +354,9 @@ def main(argsIn):
         
         parser.add_option("--local-search", dest="localSearch", action="store_true", default=False,
                           help="Instead of matching to Landsat, try to match to nearby matched images.")
+
+        parser.add_option("--debug", dest="debug", action="store_true", default=False,
+                          help="Record debug images.")
 
         parser.add_option("--print-stats", dest="printStats", action="store_true", default=False,
                           help="Instead of aligning images, print current result totals.")
@@ -432,7 +412,7 @@ def main(argsIn):
             print '>>>>>> Processing mission '+ mission +' <<<<<<'
             processMission(inputDb, outputDb,
                            mission, options.roll, options.frame, options.localSearch,
-                           options.limit, options.overwriteLevel)
+                           options.limit, options.overwriteLevel, options.debug)
 
     # Clean up  
     print 'Closing input database connection...'

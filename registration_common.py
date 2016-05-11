@@ -7,7 +7,9 @@ import traceback
 import json
 import numpy
 import shutil
+
 import IrgGeoFunctions
+import offline_config
 
 basepath    = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
@@ -30,6 +32,11 @@ def confidenceFromString(s):
         return CONFIDENCE_HIGH
     return CONFIDENCE_NONE
 
+# Geographig projection used to write output files
+OUTPUT_PROJECTION = '+proj=longlat +datum=WGS84'
+
+# TODO: Split up this file!
+
 
 def getIdentityTransform():
     '''Return an identity transform from the transform.py file'''
@@ -41,26 +48,6 @@ def isPixelValid(pixel, size):
     return ((pixel[0] >= 0      ) and (pixel[1] >= 0      ) and
             (pixel[0] <  size[0]) and (pixel[1] <  size[1])    )
 
-#def estimateGroundResolution(focalLength):
-#    if not focalLength: # Guess a low resolution for a zoomed out image
-#        return 150
-#    
-#    # Based on all the focal lengths we have seen so far
-#    if focalLength <= 50:
-#        return 200
-#    if focalLength <= 110:
-#        return 80
-#    if focalLength <= 180:
-#        return 55
-#    if focalLength <= 250:
-#        return 30
-#    if focalLength <= 340:
-#        return 25
-#    if focalLength <= 400:
-#        return 20
-#    if focalLength <= 800:
-#        return 10
-#    return 0
 
 def estimateGroundResolution(focalLength, width, height, sensorWidth, sensorHeight,
                              stationLon, stationLat, stationAlt, centerLon, centerLat, tilt=0.0):
@@ -87,8 +74,67 @@ def estimateGroundResolution(focalLength, width, height, sensorWidth, sensorHeig
         
     pixelSize = groundDiag / pixelDiag # Meters / pixels
     return pixelSize
+
+
+def safeMakeDir(folder):
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+
+def getWorkingPath(mission, roll, frame):
+    '''Get a good location to process this image.'''
     
+    if offline_config.USE_RAW:
+        ext = '.tif'
+    else:
+        ext = '.jpg'
     
+    # Generate a file name similar to the RAW storage scheme
+    FRAME_DIGITS = 6
+    zFrame   = frame.rjust(FRAME_DIGITS, '0')
+    filename = mission.lower() + roll.lower() + zFrame + ext
+    
+    # Break up frames so that there are 1000 per folder
+    FRAMES_PER_FOLDER = 1000
+    frameFolderNum = (int(frame) // FRAMES_PER_FOLDER)*1000
+    frameFolder    = str(frameFolderNum).rjust(FRAME_DIGITS, '0')
+    
+    # Store data in /mission/roll/frameF/file, skip roll if E.
+    safeMakeDir(offline_config.OUTPUT_IMAGE_FOLDER)
+    subFolder = os.path.join(offline_config.OUTPUT_IMAGE_FOLDER, mission)
+    safeMakeDir(subFolder)
+    if not (roll.lower() == 'e'):
+        subFolder = os.path.join(subFolder, roll)
+        safeMakeDir(subFolder)
+    subFolder = os.path.join(subFolder, frameFolder)
+    safeMakeDir(subFolder)
+    return os.path.join(subFolder, filename)
+
+
+def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
+                       minUncertaintyMeters, overwrite=True):
+    '''Generates all the output image files that we create for each successfully processed image.'''
+    
+    # We generate two pairs of images, one containing the image data
+    #  and another with the same format but containing the uncertainty distances.
+    uncertaintyOutputPrefix = outputPrefix + '-uncertainty'
+    rawUncertaintyPath      = outputPrefix + '-uncertainty_raw.tif'
+    
+    # Create the raw uncertainty image
+    (width, height) = IrgGeoFunctions.getImageSize(sourceImagePath)
+    rmsError = generateUncertaintyImage(width, height, imageInliers,
+                                        minUncertaintyMeters, rawUncertaintyPath)
+    
+    # Generate the two pairs of images in the same manner
+    generateGeotiff(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
+                                        rmsError, overwrite=True)
+    generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
+                                        rmsError, overwrite=True)
+    
+    # Clean up the raw uncertainty image
+    os.remove(rawUncertaintyPath)
+
+
+
 def getPixelToGdcTransform(imagePath, pixelToProjectedTransform=None):
     '''Returns a pixel to GDC transform.
        The input image must either be a nicely georegistered image from Earth Engine
@@ -419,6 +465,48 @@ def cropImageLabel(jpegPath, outputPath):
         os.system(cmd)
 
 
+def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
+    '''Use some workarounds to get a higher quality gdalwarp output than is normally possible.'''
+
+    # Generate a high resolution grid of fake GCPs based on a transform we compute,
+    # then call gdalwarp using a high order polynomial to accurately match our transform.
+
+    trans = transform.ProjectiveTransform.fit(numpy.asarray(gdcPoints),numpy.asarray(imagePoints))
+
+    tempPath = outputPath + '-temp.tif'
+
+    # Generate a temporary image containing the grid of fake GCPs
+    cmd = ('gdal_translate -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2" -a_srs "'
+           + OUTPUT_PROJECTION +'" '+ imagePath +' '+ tempPath)
+    
+    # Generate the GCPs in a grid, keeping the total under about 500 points so
+    # that GDAL does not complain.
+    (width, height) = IrgGeoFunctions.getImageSize(imagePath)
+    xStep = width /22
+    yStep = height/22
+    for r in range(0,height,yStep):
+        for c in range(0,width,xStep):
+            pixel  = (c,r)
+            lonlat = trans.forward(pixel)
+            cmd += ' -gcp '+ str(c) +' '+str(r) +' '+str(lonlat[0]) +' '+str(lonlat[1])
+    #print cmd
+    os.system(cmd)
+
+    # Now generate a warped geotiff.
+    # - "order 2" looks terrible with fewer GCPs, but "order 1" does not accurately
+    #   capture the footprint of higher tilt images.
+    # - tps seems to work well with the evenly spaced grid of virtual GCPs.
+    cmd = ('gdalwarp -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2"'
+               + ' -dstalpha -overwrite -tps -multi -r cubic -t_srs "'
+           + OUTPUT_PROJECTION +'" ' + tempPath +' '+ outputPath)
+    print cmd
+    os.system(cmd)
+
+    # Check output and cleanup
+    if not os.path.exists(outputPath):
+        raise Exception('Failed to create geotiff file: ' + outputPath)
+    os.remove(tempPath)
+
 
 def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, overwrite=False):
     '''Converts a plain tiff to a geotiff using the provided geo information.'''
@@ -429,8 +517,6 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, o
 
     noWarpOutputPath      = outputPrefix + '-no_warp.tif'
     warpOutputPath        = outputPrefix + '-warp.tif'
-    
-    OUTPUT_PROJECTION = '+proj=longlat +datum=WGS84'
 
     # First generate a geotiff that adds metadata but does not change the image data.
     # TODO - This may not be useful unless we can duplicate how they processed their RAW data!
@@ -444,6 +530,7 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, o
         #if errorMeters:
         #    cmd += ' -mo "REGISTRATION_ERROR=+/-'+str(errorMeters)+' meters" '
         
+        # Include the actual GCPs that we matched to our Landsat data.
         MAX_NUM_GCPS = 500 # Too many GCPs breaks gdal!
         count = 0
         for (imagePoint, gdcPoint) in zip(imagePoints, gdcPoints):
@@ -460,24 +547,16 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, o
             raise Exception('Failed to create geotiff file: ' + noWarpOutputPath)
 
     # Now generate a warped geotiff.
-    # - TODO: Is this method accurate enough?
-    # - "order 2" looks terrible with fewer GCPs, but "order 1" may not accurately
-    #   capture the footprint of higher tilt images.
     if (not os.path.exists(warpOutputPath)) or overwrite:
         print 'Generating WARPED output tiff'
+
+        qualityGdalwarp(imagePath, warpOutputPath, imagePoints, gdcPoints)
         
-        # Use a low order to prevent overly aggressize transform fitting
-        cmd = ('gdalwarp -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2"'
-               + ' -dstalpha -overwrite -order 1 -multi -r cubic -t_srs "'
-               + OUTPUT_PROJECTION +'" ' + noWarpOutputPath +' '+ warpOutputPath)
-        # Generate the file using gdal_translate
+        # Add some extra metadata fields.
+        cmd = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= -mo RMS_UNCERTAINTY=' +str(rmsError)
+                + ' -mo RESAMPLING_METHOD=cubic -mo WARP_METHOD=poly_order_1 ' + warpOutputPath)
         print cmd
         os.system(cmd)
-        # Add some extra metadata fields.
-        cmd2 = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= -mo RMS_UNCERTAINTY=' +str(rmsError)
-                + ' -mo RESAMPLING_METHOD=cubic -mo WARP_METHOD=poly_order_1 ' + warpOutputPath)
-        print cmd2
-        os.system(cmd2)
         
         if not os.path.exists(warpOutputPath):
             raise Exception('Failed to create geotiff file: ' + warpOutputPath)

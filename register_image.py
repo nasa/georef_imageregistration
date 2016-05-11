@@ -21,14 +21,16 @@ import registration_common
 #======================================================================================
 # Supporting functions
 
-def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransform=None):
+def convertTransformToGeo(imageToRefImageTransform, newImagePath, refImagePath, refImageGeoTransform=None):
     '''Converts an image-to-image homography to the ProjectiveTransform
        class used elsewhere in geocam.
        Either the reference image must be geo-registered, or the geo transform for it
        must be provided.'''
 
     # Convert the image-to-image transform parameters to a class
-    temp = numpy.array([tform[0:3], tform[3:6], tform[6:9]] )
+    temp = numpy.array([imageToRefImageTransform[0:3],
+                        imageToRefImageTransform[3:6],
+                        imageToRefImageTransform[6:9]] )
     imageToRefTransform = transform.ProjectiveTransform(temp)
 
     newImageSize = IrgGeoFunctions.getImageSize(newImagePath)
@@ -40,7 +42,8 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
 
     # Generate a list of point pairs
     imagePoints = []
-    worldPoints = []
+    projPoints  = []
+    gdcPoints   = []
     
     
     print 'transform = \n' + str(imageToRefTransform.matrix)
@@ -67,24 +70,29 @@ def convertTransformToGeo(tform, newImagePath, refImagePath, refImageGeoTransfor
                 projectedCoordinate = transform.lonLatToMeters(gdcCoordinate)
             else: # Use the user-provided transform
                 projectedCoordinate = refImageGeoTransform.forward(pixelInRefImage)
+                gdcCoordinate       = transform.metersToLatLon(projectedCoordinate)
                 
             imagePoints.append(thisPixel)
-            worldPoints.append(projectedCoordinate)
+            projPoints.append(projectedCoordinate)
+            gdcPoints.append(gdcCoordinate)
             #print str(thisPixel) + ' --> ' + str(gdcCoordinate) + ' <--> ' + str(projectedCoordinate)
 
     # Compute a transform object that converts from the new image to projected coordinates
     #print 'Converting transform to world coordinates...'
     #testImageToProjectedTransform = transform.getTransform(numpy.asarray(worldPoints),
     #                                                       numpy.asarray(imagePoints))
-    testImageToProjectedTransform = transform.ProjectiveTransform.fit(numpy.asarray(worldPoints),
+    testImageToProjectedTransform = transform.ProjectiveTransform.fit(numpy.asarray(projPoints),
                                                                       numpy.asarray(imagePoints))
+    
+    testImageToGdcTransform = transform.ProjectiveTransform.fit(numpy.asarray(gdcPoints),
+                                                                numpy.asarray(imagePoints))
     
     #print refPixelToGdcTransform
     #print testImageToProjectedTransform
     #for i, w in zip(imagePoints, worldPoints):
     #    print str(i) + ' --> ' + str(w) + ' <--> ' + str(testImageToProjectedTransform.forward(i))
     
-    return (testImageToProjectedTransform, refPixelToGdcTransform)
+    return (testImageToProjectedTransform, testImageToGdcTransform, refPixelToGdcTransform)
 
 
 
@@ -151,17 +159,18 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
 
     # Try to align to the reference image
     # - The transform is from image to refImage
-    (tform, confidence, imageInliers, refInliers) = \
+    (imageToRefImageTransform, confidence, imageInliers, refInliers) = \
             registration_common.alignScaledImages(imagePath, refImagePath, inputScaling, workPrefix, force, debug, slowMethod)
 
     # If we failed, just return dummy information with zero confidence.
     if (confidence == registration_common.CONFIDENCE_NONE):
         return (registration_common.getIdentityTransform(),
+                registration_common.getIdentityTransform(),
                 registration_common.CONFIDENCE_NONE, [], [], 0)
 
     # Convert the transform into a pixel-->Projected coordinate transform
-    (imageToProjectedTransform, refImageToGdcTransform) = \
-            convertTransformToGeo(tform, imagePath, refImagePath, referenceGeoTransform)
+    (imageToProjectedTransform, imageToGdcTransform, refImageToGdcTransform) = \
+            convertTransformToGeo(imageToRefImageTransform, imagePath, refImagePath, referenceGeoTransform)
 
     # For each input image inlier, generate the world coordinate.
     
@@ -170,7 +179,8 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
         gdcCoordinate = refImageToGdcTransform.forward(pix)
         gdcInliers.append(gdcCoordinate)
 
-    return (imageToProjectedTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel)
+    return (imageToProjectedTransform, imageToGdcTransform,
+            confidence, imageInliers, gdcInliers, refMetersPerPixel)
 
 
 def test():
