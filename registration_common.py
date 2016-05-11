@@ -109,6 +109,26 @@ def getWorkingPath(mission, roll, frame):
     safeMakeDir(subFolder)
     return os.path.join(subFolder, filename)
 
+# TODO: Move this to the transform.py file?
+def getFitError(imageInliers, gdcInliers):
+    '''Computes the RMS error of the transform fit of the provided points.'''
+
+    # The error is computed in pixels, but meters might be better.
+    lonlatToPixels = transform.ProjectiveTransform.fit(numpy.asarray(imageInliers),
+                                                       numpy.asarray(gdcInliers))
+    
+    numPoints = float(len(imageInliers))
+    rms = 0.0
+    for (pixel, lonlat) in zip(imageInliers, gdcInliers):
+        tformPixel = lonlatToPixels.forward(lonlat)
+        dx         = pixel[0] - tformPixel[0]
+        dy         = pixel[1] - tformPixel[1]
+        errSq      = dx*dx + dy*dy
+        #print 'pixel = ' + str(pixel) +', tform = ' + str(tformPixel)
+        rms += errSq / numPoints
+    
+    return math.sqrt(rms)
+
 
 def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
                        minUncertaintyMeters, overwrite=True):
@@ -121,14 +141,17 @@ def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
     
     # Create the raw uncertainty image
     (width, height) = IrgGeoFunctions.getImageSize(sourceImagePath)
-    rmsError = generateUncertaintyImage(width, height, imageInliers,
+    posError = generateUncertaintyImage(width, height, imageInliers,
                                         minUncertaintyMeters, rawUncertaintyPath)
+    
+    # Get a measure of the fit error
+    fitError = getFitError(imageInliers, gdcInliers)
     
     # Generate the two pairs of images in the same manner
     generateGeotiff(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-                                        rmsError, overwrite=True)
+                                        posError, fitError, overwrite=True)
     generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
-                                        rmsError, overwrite=True)
+                                        posError, fitError, overwrite=True)
     
     # Clean up the raw uncertainty image
     os.remove(rawUncertaintyPath)
@@ -508,7 +531,7 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     os.remove(tempPath)
 
 
-def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, overwrite=False):
+def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, fitError, overwrite=False):
     '''Converts a plain tiff to a geotiff using the provided geo information.'''
 
     # Check inputs
@@ -522,7 +545,8 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, o
     # TODO - This may not be useful unless we can duplicate how they processed their RAW data!
     if (not os.path.exists(noWarpOutputPath)) or overwrite:
         print 'Generating UNWARPED output tiff'
-        cmd = ('gdal_translate -mo RMS_UNCERTAINTY='+str(rmsError)
+        cmd = ('gdal_translate -mo POSITION_UNCERTAINTY_RMS='+str(posError)
+               + ' -mo FIT_ERROR_RMS='+str(fitError)
                + ' -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2" -a_srs "'
                + OUTPUT_PROJECTION +'" '+ imagePath +' '+ noWarpOutputPath)
         
@@ -541,7 +565,7 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, o
                 break
             
         # Generate the file using gdal_translate
-        print cmd
+        #print cmd
         os.system(cmd)
         if not os.path.exists(noWarpOutputPath):
             raise Exception('Failed to create geotiff file: ' + noWarpOutputPath)
@@ -553,7 +577,8 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, rmsError, o
         qualityGdalwarp(imagePath, warpOutputPath, imagePoints, gdcPoints)
         
         # Add some extra metadata fields.
-        cmd = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= -mo RMS_UNCERTAINTY=' +str(rmsError)
+        cmd = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= -mo POSITION_UNCERTAINTY_RMS=' +str(posError)
+                + ' -mo FIT_ERROR_RMS='+str(fitError)
                 + ' -mo RESAMPLING_METHOD=cubic -mo WARP_METHOD=poly_order_1 ' + warpOutputPath)
         print cmd
         os.system(cmd)
