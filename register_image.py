@@ -102,10 +102,9 @@ def convertTransformToGeo(imageToRefImageTransform, newImagePath, refImagePath, 
 #======================================================================================
 # Main interface function
 
-# TODO: User passes in estimatedMpp or we need sensor information!
-
 def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
-                   refImagePath=None, referenceGeoTransform=None, debug=False, force=False, slowMethod=False):
+                   refImagePath=None, referenceGeoTransform=None, refMetersPerPixelIn=None,
+                   debug=False, force=False, slowMethod=False):
     '''Attempts to geo-register the provided image.
        Returns a transform from image coordinates to projected meters coordinates.
        Also returns an evaluation of how likely the registration is to be correct.'''
@@ -145,7 +144,7 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
             percentValid      = float(lines[0])
             refMetersPerPixel = float(lines[1])
     else: # The user provided a reference image
-        refMetersPerPixel = metersPerPixel # In this case the user must provide an accurate value!
+        refMetersPerPixel = refMetersPerPixelIn # In this case the user must provide an accurate value!
         if not os.path.exists(refImagePath):
             raise Exception('Provided reference image path does not exist!')
 

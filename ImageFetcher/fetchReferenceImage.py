@@ -348,14 +348,15 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     # - Earth Engine sometimes fails so try a few times before giving up.
     
     NUM_RETRIES = 3
+    SLEEP_TIME  = 10
     numTries = 0
     while True:
         if numTries < (NUM_RETRIES-1):
             try:
                 miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
                 return (percentValid, mppToUse)
-            except Exception: # First tries, ignore the exception
-                pass
+            except Exception: # After the first failures, wait and try again.
+                time.sleep(SLEEP_TIME)
             numTries += 1
         else: # Last pass, don't catch the exception.
             miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)

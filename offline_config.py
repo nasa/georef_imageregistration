@@ -45,7 +45,7 @@ MAX_TILT_ANGLE = 70
 
 # Maximum cloud percentage that we will try to process.
 # - For convenience, convert it to an integer here.
-MAX_CLOUD_PERCENTAGE     = 0.20
+MAX_CLOUD_PERCENTAGE     = 0.34
 MAX_CLOUD_PERCENTAGE_INT = int(MAX_CLOUD_PERCENTAGE*100)
 
 

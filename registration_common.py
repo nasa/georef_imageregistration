@@ -37,6 +37,7 @@ OUTPUT_PROJECTION = '+proj=longlat +datum=WGS84'
 
 # TODO: Split up this file!
 
+# TODO: Make sure that information entered via the GUI gets handled properly!
 
 def getIdentityTransform():
     '''Return an identity transform from the transform.py file'''
@@ -153,8 +154,11 @@ def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
     generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
                                         posError, fitError, overwrite=True)
     
-    # Clean up the raw uncertainty image
+    # Clean up the raw uncertainty image and any extraneous files
+    rawXmlPath = rawUncertaintyPath + '.aux.xml'
     os.remove(rawUncertaintyPath)
+    if os.path.exists(rawXmlPath):
+        os.remove(rawXmlPath)
 
 
 
@@ -262,8 +266,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slo
         else:     cmd.append('n')
         if slowMethod: cmd.append('y')
         else:          cmd.append('n')
-        print "command is "
-        print cmd
+        #print cmd
         #os.system('build/registerGeocamImage '+ refImagePath+' '+testImagePath+' '+transformPath+' --debug')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
@@ -367,35 +370,6 @@ def convertGcps(inputGdcCoords, imageToProjectedTransform, width, height):
 
     return (imageCoords, gdcCoords)
 
-#
-#def logRegistrationResults(outputPath, pixelTransform, confidence,
-#                           refImagePath, imageToGdcTransform=None):
-#    '''Log the registration results so they can be read back in later.
-#       Provides enough data so that the image can be '''
-#
-#    dataDict = {'pixelTransform':tform,
-#                'confidence':confidence,
-#                'refImagePath':refImagePath,
-#                'imageGdcTransform':imageToGdcTransform}
-#    
-#    with open(outputPath, 'w') as outFile:
-#        json.dumps(dataDict, outFile)
-#
-#
-#def readRegistrationLog(logPath):
-#    '''Reads a log file written by logRegistrationResults.
-#       Returns None for every value if the log does not exist.'''
-#    
-#    if not os.path.exists(logPath):
-#        return (None, None, None, None)
-#    
-#    with open(logPath, 'r') as inFile:
-#        dataDict = json.loads(inFile)
-#    
-#    return (dataDict['pixelTransform'],    dataDict['confidence'],
-#            dataDict['refImagePath'], dataDict['imageToGdcTransform'])
-#
-
 
 def generateUncertaintyImage(width, height, imageInliers, minUncertainty, outputPath):
     '''Given a list of GCPs in an image, generate a distance image containing the
@@ -411,14 +385,14 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     tempPath2 = outputPath + '-tempDist.tif'
     cmd = ("convert +depth -size "+str(width)+"x"+str(height)+
            " xc:white  -fill black -draw '"+drawLine+"' " +tempPath1)
-    print cmd
+    #print cmd
     os.system(cmd)
     if not os.path.exists(tempPath1):
         raise Exception('Failed to generate GCP point image!')
 
     # Get the distance from each 
     cmd2 = ('convert '+tempPath1+' -morphology Distance Euclidean:1,1 '+ tempPath2)
-    print cmd2
+    #print cmd2
     os.system(cmd2)
     if not os.path.exists(tempPath2):
         raise Exception('Failed to generate GCP distance image!')
@@ -437,7 +411,7 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     # Use gdal_translate to convert from Uint16 to a scaled 32 bit floating point image
     #  with the final error numbers.
     cmd3 = ('gdal_translate -b 1 -ot Float32 -scale '+uncertaintyString+ tempPath2 +' '+ outputPath)
-    print cmd3
+    #print cmd3
     os.system(cmd3)
     if not os.path.exists(outputPath):
         raise Exception('Failed to generate uncertainty image!')
@@ -446,7 +420,7 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     #cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
     cmdPath = 'build/computeImageRms'
     cmd4    = [cmdPath, outputPath]
-    print cmd4
+    #print cmd4
     p = subprocess.Popen(cmd4, stdout=subprocess.PIPE)
     textOutput, err = p.communicate()
     
@@ -522,7 +496,7 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     cmd = ('gdalwarp -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2"'
                + ' -dstalpha -overwrite -tps -multi -r cubic -t_srs "'
            + OUTPUT_PROJECTION +'" ' + tempPath +' '+ outputPath)
-    print cmd
+    #print cmd
     os.system(cmd)
 
     # Check output and cleanup
@@ -580,7 +554,7 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, f
         cmd = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= -mo POSITION_UNCERTAINTY_RMS=' +str(posError)
                 + ' -mo FIT_ERROR_RMS='+str(fitError)
                 + ' -mo RESAMPLING_METHOD=cubic -mo WARP_METHOD=poly_order_1 ' + warpOutputPath)
-        print cmd
+        #print cmd
         os.system(cmd)
         
         if not os.path.exists(warpOutputPath):
