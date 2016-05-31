@@ -45,11 +45,29 @@ registerImage.py is the main function.
 
 Offline processing TODO:
 
-Multiple simultaneous processes!
 
-MYSQL server:
-localhost
-vagrant/vagrant
+DB change requests:
+    - Make issMRF a unique value in all tables where we use it.
+    - Do something with the registration info in the overlays table.
+        - Move simple numbers out of the extras field (size, rotation, focal length, center, nadir, bounds, etc).
+        - By mirroring our existing registration table fields we can make searches easier using joins.
+
+- TODO: Images which are in our DB but not in the input DB file are not supported.
+
+- Add UNIQUE flag if not already done.
+
+
+- Disable GUI writing of gtiff files.
+- Verify offline tools output folder.
+- Set up automatic offline tools.
+    - How should they be running?
+- Verify that offline tools are running.
+- Test out the GUI, make sure everything works properly.
+- More testing
+
+- Double check why our RMS fit error is so high.
+- Switch from prints to logging
+
 
 Verify local is working:
 iss027 - 005051, 50

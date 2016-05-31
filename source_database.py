@@ -55,10 +55,10 @@ def getSourceImage(frameInfo, overwrite=False):
         return outputPath
     
     if offline_config.USE_RAW:
-        print 'Converting RAW to TIF...'
+        #print 'Converting RAW to TIF...'
         convertRawFileToTiff(frameInfo.rawPath, outputPath)
     else: # JPEG input
-        print 'Grabbing JPEG'
+        #print 'Grabbing JPEG'
         # Download to a temporary file
         tempPath = outputPath + '-temp.jpeg'
         grabJpegFile(frameInfo.mission, frameInfo.roll, frameInfo.frame, tempPath)
@@ -94,7 +94,7 @@ def grabJpegFile(mission, roll, frame, outputPath):
            (mission, mission, roll, frame) )
     
     # Download the data
-    print 'Downloading image from ' + url
+    #print 'Downloading image from ' + url
     data = urllib2.urlopen(url)
     with open(outputPath, 'wb') as fp:
         while True:
@@ -102,7 +102,9 @@ def grabJpegFile(mission, roll, frame, outputPath):
             if not chunk:
                 break
             fp.write(chunk)
-    print 'Download complete!'
+    if not os.path.exists(outputPath):
+        raise Exception('Error fetching jpeg image ' + str((mission, roll, frame)))
+    #print 'Download complete!'
 
 
 #=======================================================
@@ -363,7 +365,12 @@ class FrameInfo(object):
         # Get the image size
         if self.rawPath:
             (self.width, self.height) = getRawImageSize(self.rawPath)
-        
+    
+    def getMySqlDateTime(self):
+        '''Format a datetime string for MySQL'''
+        s = self.date.replace('.','-') + ' ' + self.time
+        return s
+    
     # These functions check individual metadata parameters to
     #  see if the image is worth trying to process.
     def isExposureGood(self):
@@ -378,7 +385,7 @@ class FrameInfo(object):
         return (self.isExposureGood() and
                 self.isTiltGood() and
                 self.isCloudPercentageGood() and
-                self.rawPath) # Later, work with non-raw images.
+                self.rawPath) # TODO: Don't require this when dealing with jpegs
 
     def isCenterWithinDist(self, lon, lat, dist):
         '''Returns True if the frame center is within a distance of lon/lat.
