@@ -265,13 +265,14 @@ def processFrame(options, frameDbData, searchNearby=False):
 def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
     '''Get the next image which is ready to process'''
 
-    # Get a list of all images which might work, ignoring center point.
+    # Get a list of all images which might be ready to register, ignoring center point.
     candidateImages = source_database.getCandidatesInMission(sourceDbCursor,
                         options.mission, options.roll, options.frame, checkCoords=False)
     
     print 'Found ' + str(len(candidateImages)) +' matches.'
     
     # Now filter based on center point and our results
+    # - We have to check each frame in our DB one at a time to see if we already registered it.
     results = []
     for (mission, roll, frame, lon, lat) in candidateImages:
         

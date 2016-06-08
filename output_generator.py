@@ -22,26 +22,22 @@ and generates the output files for them.
 
 # TODO: There are some duplicates with backlog_processor
 
-# TODO: This tool should prioritize manually generated tiepoints/images
 
-def findReadyImage(options, georefDb):
+def findReadyImages(options, georefDb, numImages):
     '''Get the next image which is ready to process'''
 
     if options.frame:
-        return (options.mission, options.roll, options.frame)
+        return [(options.mission, options.roll, options.frame)]
 
-    NUM_IMAGES_TO_GET = 1
-    imageList = georefDb.getImagesReadyForOutput(limit=NUM_IMAGES_TO_GET)
-    if not imageList:
-        return (None, None, None)
+    imageList = georefDb.getImagesReadyForOutput(limit=numImages)
 
-    return imageList[0] # (mission, roll, frame)
+    return imageList
 
 
 def getImageInfo(frameDbData, georefDb):
     '''Get information for the specified image'''
     
-    # This function fetches the source image if it does not exist
+    # This function generates/fetches the source image if it does not exist
     sourceImagePath = source_database.getSourceImage(frameDbData)
     
     # Retrieve needed image info from our DB
@@ -97,41 +93,46 @@ def main(argsIn):
     georefDb = georefDbWrapper.DatabaseLogger()
     
 
-    count = 0
-    while True:
-    
-        # Get the next image to process
-        (mission, roll, frame) = findReadyImage(options, georefDb)
-    
-        if not frame:
-            print 'Output Generator found no more data.'
-            break
+    # Get images to process
+    targetFrames = findReadyImages(options, georefDb, options.limit)
 
-        print str((mission, roll, frame))
+    count = 0
+    for (mission, roll, frame) in targetFrames:
+
+        try:
+            print str((mission, roll, frame))
+            
+            frameDbData = source_database.FrameInfo()
+            frameDbData.loadFromDb(sourceDbCursor, mission, roll, frame)
+            #print 'Output Generator obtained data: ' + str(frameDbData)
         
-        frameDbData = source_database.FrameInfo()
-        frameDbData.loadFromDb(sourceDbCursor, mission, roll, frame)
-        #print 'Output Generator obtained data: ' + str(frameDbData)
-    
-        (sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters) \
-              = getImageInfo(frameDbData, georefDb)
-    
-        outputPrefix = getOutputPrefix(mission, roll, frame)
-    
-        registration_common.recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-                           minUncertaintyMeters, overwrite=True)
+            (sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters) \
+                  = getImageInfo(frameDbData, georefDb)
         
-        # Clean up the source image we generated
-        os.remove(sourceImagePath)
+            print sourceImagePath
+            print imageInliers
+            print gdcInliers
+            print minUncertaintyMeters
         
-        # Update the database to record that we wrote the image
-        georefDb.markAsWritten(mission, roll, frame)
+            outputPrefix = getOutputPrefix(mission, roll, frame)
         
+            registration_common.recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
+                               minUncertaintyMeters, overwrite=True)
+            
+            # Clean up the source image we generated
+            os.remove(sourceImagePath)
+            
+            # Update the database to record that we wrote the image
+            georefDb.markAsWritten(mission, roll, frame)
+
+            #break # DEBUG!
+
+        except Exception as e:
+            print 'Caught exception:'
+            print(sys.exc_info()[0])
+            print traceback.print_exc()
+            
         count += 1
-        
-        if options.frame or (options.limit and (count >= options.limit)):
-            print 'Output Generator has processed the requested number of images.'
-            break
 
     print '---=== Output Generator has stopped ===---'
     
