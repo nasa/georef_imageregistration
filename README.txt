@@ -45,19 +45,25 @@ registerImage.py is the main function.
 
 Offline processing TODO:
 
+---- How to connect to georef on the stage machine -----
+
+ssh -L 1234:127.0.0.1:443  geocam-stage.jsc.nasa.gov
+In web browser: https://localhost:1234 (add exception if needed)
+
 
 DB change requests:
     - Make issMRF a unique value in all tables where we use it.
     - Do something with the registration info in the overlays table.
         - Move simple numbers out of the extras field (size, rotation, focal length, center, nadir, bounds, etc).
+        - Add a "writtenToFile" field.
         - By mirroring our existing registration table fields we can make searches easier using joins.
 
 - TODO: Images which are in our DB but not in the input DB file are not supported.
 
 - Add UNIQUE flag if not already done.
+- 
 
-
-- Disable GUI writing of gtiff files.
+- Disable GUI writing of gtiff files.  ---> Go ahead and start running the tools, ignoring this step!
 - Verify offline tools output folder.
 - Set up automatic offline tools.
     - How should they be running?

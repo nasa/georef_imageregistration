@@ -16,7 +16,7 @@ from geocamTiePoint import transform
    This file contains code for reading/writing the database
    containing our processing results.
    
-   TODO: Manage our file outputs as well!
+   TODO: Update write statements to use safer input wrapping method!
 '''
 
 
@@ -216,18 +216,16 @@ class DatabaseLogger(object):
         print cmd
         rows = self._executeCommand(cmd)
         
-        # TODO: Double check this!
+        DEFAULT_MPP = 30 # Manual registration does not really have an MPP size...
         
-        print rows
-        if len(rows) == 1:
-            text = rows[0][0]
-            data = json.loads(text)
-            if ['lat'] in data:
-                lat = data['lat']
-                lon = data['lon']
-                return (lon, lat)
-        return (None, None)
+        if len(rows) != 1:
+            return (None, None)
 
+        text = rows[0][0]
+        data = json.loads(text)
+        (imageInliers, gdcInliers) = self.parseManualEntryPointPairs(data)
+        
+        return (registration_common.CONFIDENCE_HIGH, imageInliers, gdcInliers, DEFAULT_MPP)
 
 
     def getManualGeorefCenterPoint(self, mission, roll, frame):
@@ -299,7 +297,6 @@ class DatabaseLogger(object):
         else:
             print 'Did not find ' + mrf + ' in our DB'
 
-        # TODO: Is this really the most trusted source?
         # Check if there is a manual georef center point, the most trusted source.
         (lonNew, latNew) = self.getManualGeorefCenterPoint(mission, roll, frame)
         if lonNew != None:
@@ -319,7 +316,6 @@ class DatabaseLogger(object):
             (lon, lat) = (lonNew, latNew)
         return (processed, confidence, lon, lat)
 
-    # TODO: Verify that this works properly!
     def findNearbyGoodResults(self, timestamp, frameLimit, mission=None):
         '''Find all good results nearby a given time.
            If mission is provided restrict to the mission.'''
@@ -350,6 +346,24 @@ class DatabaseLogger(object):
             results[frame] = (imageToProjectedTransform, confidence, imageInliers, gdcInliers)
 
         return results  
+
+
+    def parseManualEntryPointPairs(self, manualInfoDict):
+        '''Unpack the inlier point pairs from an entry in the geocamTiePoint_overlay table'''
+    
+        imageInliers = []
+        gdcInliers   = []
+        allPoints = manualInfoDict['points']
+        for point in allPoints:
+            if (point[0] == None) or (point[1] == None) or (point[2] == None) or (point[3] == None):
+                continue # Skip buggy entries!
+            # The world coordinates in the manual table are stored in projected coordinates
+            gdcCoord = transform.metersToLatLon((point[0], point[1]))
+            gdcInliers.append(gdcCoord)
+            imageInliers.append((point[2], point[3]))
+            
+        return (imageInliers, gdcInliers)
+    
 
     def findNearbyManualResults(self, timestamp, maxTimeDiff, missionIn=None):
         '''Find all manual registration results near a certain time.'''
@@ -387,19 +401,9 @@ class DatabaseLogger(object):
                     continue
 
                 # If the time is in range then we will use the result
-                confidence                = registration_common.CONFIDENCE_HIGH
-                imageToProjectedTransform = transform.makeTransform(data['transform'])
-                
-                imageInliers = []
-                gdcInliers   = []
-                allPoints = data['points']
-                for point in allPoints:
-                    if (point[0] == None) or (point[1] == None) or (point[2] == None) or (point[3] == None):
-                        continue # Skip buggy entries!
-                    # The world coordinates in the manual table are stored in projected coordinates
-                    gdcCoord = transform.metersToLatLon((point[0], point[1]))
-                    gdcInliers.append(gdcCoord)
-                    imageInliers.append((point[2], point[3]))
+                confidence                 = registration_common.CONFIDENCE_HIGH
+                imageToProjectedTransform  = transform.makeTransform(data['transform'])
+                (imageInliers, gdcInliers) = self.parseManualEntryPointPairs(data)
                 
                 results[frame] = (imageToProjectedTransform, confidence, imageInliers, gdcInliers)
             except: # For now just ignore failing entries
@@ -439,22 +443,33 @@ class DatabaseLogger(object):
                                 centerPointSource, resultText, sourceTime,
                                 writtenToFile, centerLat, centerLon, registrationMpp))
         self._executeCommand(cmd, commit=True)
-        
-        # Before we return, verify that our result actually made it into the database.
-        # Make checks periodically until we find it or give up.
-        #NUM_CHECKS = 6
-        #for i in range(0,NUM_CHECKS):
-        #    if self.doWeHaveResult(mission, roll, frame):
-        #        print 'Verified result add.'
-        #        return
-        #    print 'Waiting for DB addition...'
-        #    time.sleep(5)
-        
-        #raise Exception('Database failed to add frame ' + mrf)
-
+    
+    
     def markAsWritten(self, mission, roll, frame):
         '''Update a registration result to mark that we wrote the output images.'''
+        
+        # Check if there is a manual result for this MRF
         mrf = self._missionRollFrameToMRF(mission, roll, frame)
+        cmd = ('SELECT over.extras, over.key FROM geocamTiePoint_overlay over'+
+               ' INNER JOIN geocamTiePoint_imagedata image'+
+               ' ON over.imageData_id = image.id WHERE image.issMRF="'+mrf+'"')
+        #print cmd
+        rows = self._executeCommand(cmd)
+        if len(rows) > 1:
+            raise Exception('Multiple manual results found for ' + mrf)
+        
+        if len(rows) == 1: # Replace the "extras" text with updated text
+            row  = rows[0]
+            data = json.loads(row[0])
+            data['writtenToFile'] = True
+            newText = json.dumps(data).replace('"','""')
+
+            self._dbCursor.execute("UPDATE geocamTiePoint_overlay SET extras=%s WHERE geocamTiePoint_overlay.key=%s",
+                                   (newText, row[1]))
+            self._dbConnection.commit()
+            return
+
+        # If there is not, it must be an automatic result.
         cmd = ('UPDATE geocamTiePoint_automatchresults SET writtenToFile=1'
                +' WHERE issMRF="'+mrf+'"')
         self._executeCommand(cmd, commit=True)
@@ -492,16 +507,47 @@ class DatabaseLogger(object):
     def getImagesReadyForOutput(self, confidence='HIGH', limit=0):
         '''Returns a list of images where the required registration information is available.'''
 
-        # TODO: Do we need to check the geocamTiePoint_overlay table too?
-        #       --> It contains points, transform, etc in the extras field.
+        # First check the manual results, these are higher priority to process.
+        output = []
+        cmd = ('SELECT over.extras, image.issMRF FROM geocamTiePoint_overlay over'+
+               ' INNER JOIN geocamTiePoint_imagedata image'+
+               ' ON over.imageData_id = image.id')
+        #print cmd
+        rows = self._executeCommand(cmd)
+        
+        for row in rows:
+            try:
+                # Check if this image has been written and if it has enough
+                #  information to be written.
+                data = json.loads(row[0])
+                try:
+                    if data['writtenToFile']:
+                        continue
+                except:
+                    pass
+                try:
+                    if len(data['points']) < 3:
+                        continue
+                except:
+                    continue
+                
+                # Otherwise add to the list
+                output.append(self._MRFToMissionRollFrame(row[1]))
+                
+                # Stop whenever we get enough data
+                if len(output) >= limit:
+                    return output
+            except: # For now just ignore failing entries
+                pass
 
+
+        # If we need more images, now look at the automatic table.
         cmd = ('SELECT issMRF FROM geocamTiePoint_automatchresults WHERE matchConfidence="'
                +confidence+'" AND writtenToFile=0')
         if limit > 0:
             cmd += ' LIMIT ' + str(limit)
         rows = self._executeCommand(cmd)
         
-        output = []
         for row in rows:
             output.append(self._MRFToMissionRollFrame(row[0]))
         
@@ -509,7 +555,7 @@ class DatabaseLogger(object):
 
 
     
-
+# TODO Do we have any need for this function?
     def getImagesReadyForRegistration(self, ):
         '''Returns a list of image MRFs ready for autoregistration.
            The requirements for registration are the center point
