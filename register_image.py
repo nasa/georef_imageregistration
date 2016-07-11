@@ -145,6 +145,7 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
             refMetersPerPixel = float(lines[1])
     else: # The user provided a reference image
         refMetersPerPixel = refMetersPerPixelIn # In this case the user must provide an accurate value!
+
         if not os.path.exists(refImagePath):
             raise Exception('Provided reference image path does not exist!')
 

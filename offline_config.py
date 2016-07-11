@@ -34,8 +34,13 @@ GEOREF_DB_NAME="georef"
 OUTPUT_DATABASE_PATH = '/home/smcmich1/log_db_test.sqlt'
 
 # Top level folder where we write our output files
+<<<<<<< HEAD
 OUTPUT_IMAGE_FOLDER  = '/home/smcmich1/georef_images'
 
+=======
+#OUTPUT_IMAGE_FOLDER  = '/home/smcmich1/georef_images'
+OUTPUT_IMAGE_FOLDER  = '/media/network/GeoRef/auto'
+>>>>>>> Current testing version of autoregistration software
 
 # ==================================================
 # Input image filters

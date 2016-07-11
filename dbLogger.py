@@ -208,3 +208,42 @@ class DatabaseLogger(object):
                                 transformText, imagePointText, gdcPointText))
         self._dbConnection.commit()
         return
+<<<<<<< HEAD
+=======
+
+
+
+import MySQLdb
+
+if __name__ == "__main__":
+    
+    # Try connecting to the MySQL server
+    print 'connect'
+    db = MySQLdb.connect(host="localhost", user="root", passwd="vagrant", db="georef")
+    cursor = db.cursor();
+    print 'cmd'
+    cursor.execute('show tables;')
+    tables = cursor.fetchall()
+    print tables
+    
+    for table in tables:
+        print '\n========================================='
+        print table[0]
+        cursor.execute('describe ' + table[0])
+        result = cursor.fetchall()
+        print result
+    
+    
+    db.close()
+    print 'done'
+
+
+
+
+
+
+
+
+
+
+>>>>>>> Current testing version of autoregistration software
