@@ -174,8 +174,13 @@ class DatabaseLogger(object):
         return (level > overwriteLevel)
 
     def getResult(self, mission, roll, frame):
+<<<<<<< HEAD
         '''Fetches a result from the database: (confidence, imagePoints, gdcPoints, mpp).
            Returns (None, None, None, None) if there is no data for this frame.'''
+=======
+        '''Fetches a result from the database: (confidence, imagePoints, gdcPoints, mpp, isManualRegistration).
+           Returns (None, None, None, None, None) if there is no data for this frame.'''
+>>>>>>> Current testing version of autoregistration software
 
         # If we have a manual result, use that!
         manualResult = self.getManualResult(mission, roll, frame)
@@ -188,7 +193,11 @@ class DatabaseLogger(object):
         rows = self._executeCommand(cmd)
 
         if len(rows) != 1: # Data not found
+<<<<<<< HEAD
             return (None, None, None, None)
+=======
+            return (None, None, None, None, None)
+>>>>>>> Current testing version of autoregistration software
         row = rows[0]
 
         confidence                = registration_common.confidenceFromString(row[0])
@@ -200,7 +209,11 @@ class DatabaseLogger(object):
         # Currently we don't read the date
         
         return (confidence,
+<<<<<<< HEAD
                 imageInliers, gdcInliers, registrationMpp)
+=======
+                imageInliers, gdcInliers, registrationMpp, False)
+>>>>>>> Current testing version of autoregistration software
 
 
     def getManualResult(self, mission, roll, frame):
@@ -219,13 +232,21 @@ class DatabaseLogger(object):
         DEFAULT_MPP = 30 # Manual registration does not really have an MPP size...
         
         if len(rows) != 1:
+<<<<<<< HEAD
             return (None, None)
+=======
+            return (None, None, None, None, None)
+>>>>>>> Current testing version of autoregistration software
 
         text = rows[0][0]
         data = json.loads(text)
         (imageInliers, gdcInliers) = self.parseManualEntryPointPairs(data)
         
+<<<<<<< HEAD
         return (registration_common.CONFIDENCE_HIGH, imageInliers, gdcInliers, DEFAULT_MPP)
+=======
+        return (registration_common.CONFIDENCE_HIGH, imageInliers, gdcInliers, DEFAULT_MPP, True)
+>>>>>>> Current testing version of autoregistration software
 
 
     def getManualGeorefCenterPoint(self, mission, roll, frame):
@@ -450,7 +471,11 @@ class DatabaseLogger(object):
         
         # Check if there is a manual result for this MRF
         mrf = self._missionRollFrameToMRF(mission, roll, frame)
+<<<<<<< HEAD
         cmd = ('SELECT over.extras, over.key FROM geocamTiePoint_overlay over'+
+=======
+        cmd = ('SELECT over.key FROM geocamTiePoint_overlay over'+
+>>>>>>> Current testing version of autoregistration software
                ' INNER JOIN geocamTiePoint_imagedata image'+
                ' ON over.imageData_id = image.id WHERE image.issMRF="'+mrf+'"')
         #print cmd
@@ -458,6 +483,7 @@ class DatabaseLogger(object):
         if len(rows) > 1:
             raise Exception('Multiple manual results found for ' + mrf)
         
+<<<<<<< HEAD
         if len(rows) == 1: # Replace the "extras" text with updated text
             row  = rows[0]
             data = json.loads(row[0])
@@ -467,6 +493,13 @@ class DatabaseLogger(object):
             self._dbCursor.execute("UPDATE geocamTiePoint_overlay SET extras=%s WHERE geocamTiePoint_overlay.key=%s",
                                    (newText, row[1]))
             self._dbConnection.commit()
+=======
+        if len(rows) == 1: # Set the writtenToFile flag
+
+            #self._dbCursor.execute("UPDATE geocamTiePoint_overlay SET writtenToFile=1 WHERE geocamTiePoint_overlay.key=%s",
+            #                       (rows[0][0]))
+            #self._dbConnection.commit()
+>>>>>>> Current testing version of autoregistration software
             return
 
         # If there is not, it must be an automatic result.
@@ -511,11 +544,16 @@ class DatabaseLogger(object):
         output = []
         cmd = ('SELECT over.extras, image.issMRF FROM geocamTiePoint_overlay over'+
                ' INNER JOIN geocamTiePoint_imagedata image'+
+<<<<<<< HEAD
                ' ON over.imageData_id = image.id')
+=======
+               ' ON over.imageData_id = image.id WHERE over.writtenToFile=0')
+>>>>>>> Current testing version of autoregistration software
         #print cmd
         rows = self._executeCommand(cmd)
         
         for row in rows:
+<<<<<<< HEAD
             try:
                 # Check if this image has been written and if it has enough
                 #  information to be written.
@@ -526,6 +564,13 @@ class DatabaseLogger(object):
                 except:
                     pass
                 try:
+=======
+            break
+            try:
+                # Check if this image has enough information to be written.
+                data = json.loads(row[0])
+                try:
+>>>>>>> Current testing version of autoregistration software
                     if len(data['points']) < 3:
                         continue
                 except:

@@ -41,10 +41,17 @@ def getImageInfo(frameDbData, georefDb):
     sourceImagePath = source_database.getSourceImage(frameDbData)
     
     # Retrieve needed image info from our DB
+<<<<<<< HEAD
     (confidence, imageInliers, gdcInliers, registrationMpp) = \
         georefDb.getResult(frameDbData.mission, frameDbData.roll, frameDbData.frame)
     
     return (sourceImagePath, imageInliers, gdcInliers, registrationMpp)
+=======
+    (confidence, imageInliers, gdcInliers, registrationMpp, isManual) = \
+        georefDb.getResult(frameDbData.mission, frameDbData.roll, frameDbData.frame)
+    
+    return (sourceImagePath, imageInliers, gdcInliers, registrationMpp, isManual)
+>>>>>>> Current testing version of autoregistration software
 
 
 
@@ -96,6 +103,12 @@ def main(argsIn):
     # Get images to process
     targetFrames = findReadyImages(options, georefDb, options.limit)
 
+<<<<<<< HEAD
+=======
+    if len(targetFrames) == 0:
+        print 'Did not find any frames ready to process.'
+
+>>>>>>> Current testing version of autoregistration software
     count = 0
     for (mission, roll, frame) in targetFrames:
 
@@ -106,6 +119,7 @@ def main(argsIn):
             frameDbData.loadFromDb(sourceDbCursor, mission, roll, frame)
             #print 'Output Generator obtained data: ' + str(frameDbData)
         
+<<<<<<< HEAD
             (sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters) \
                   = getImageInfo(frameDbData, georefDb)
         
@@ -113,11 +127,24 @@ def main(argsIn):
             print imageInliers
             print gdcInliers
             print minUncertaintyMeters
+=======
+            (sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters, isManual) \
+                  = getImageInfo(frameDbData, georefDb)
+        
+            #print sourceImagePath
+            #print imageInliers
+            #print gdcInliers
+            #print minUncertaintyMeters
+>>>>>>> Current testing version of autoregistration software
         
             outputPrefix = getOutputPrefix(mission, roll, frame)
         
             registration_common.recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
+<<<<<<< HEAD
                                minUncertaintyMeters, overwrite=True)
+=======
+                               minUncertaintyMeters, isManual, overwrite=True)
+>>>>>>> Current testing version of autoregistration software
             
             # Clean up the source image we generated
             os.remove(sourceImagePath)

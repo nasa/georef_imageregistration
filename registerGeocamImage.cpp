@@ -226,6 +226,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   if (nfeaturesMatch < MIN_FEATURES) nfeaturesMatch = MIN_FEATURES;
   if (nfeaturesRef   > MAX_FEATURES) nfeaturesRef   = MAX_FEATURES;
   if (nfeaturesMatch > MAX_FEATURES) nfeaturesMatch = MAX_FEATURES;
+
   printf("Using %d reference features.\n", nfeaturesRef);
   printf("Using %d match features.\n",     nfeaturesMatch);
   

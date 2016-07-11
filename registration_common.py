@@ -15,6 +15,7 @@ basepath    = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
 sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
+
 from geocamTiePoint import transform
 from django.conf import settings
 
@@ -42,7 +43,6 @@ OUTPUT_PROJECTION = '+proj=longlat +datum=WGS84'
 def getIdentityTransform():
     '''Return an identity transform from the transform.py file'''
     return transform.ProjectiveTransform(numpy.matrix([[1,0,0],[0,1,0],[0,0,1]],dtype='float64'))
-
 
 def isPixelValid(pixel, size):
     '''Simple pixel bounds check'''
@@ -132,7 +132,7 @@ def getFitError(imageInliers, gdcInliers):
 
 
 def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-                       minUncertaintyMeters, overwrite=True):
+                       minUncertaintyMeters, isManualRegistration=False, overwrite=True):
     '''Generates all the output image files that we create for each successfully processed image.'''
     
     # We generate two pairs of images, one containing the image data
@@ -149,10 +149,21 @@ def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
     fitError = getFitError(imageInliers, gdcInliers)
     
     # Generate the two pairs of images in the same manner
-    generateGeotiff(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-                                        posError, fitError, overwrite=True)
-    generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
-                                        posError, fitError, overwrite=True)
+    try:
+        (noWarpOutputPath, warpOutputPath) = \
+            generateGeotiff(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
+                                            posError, fitError, isManualRegistration,
+                                            writeHeaders=True, overwrite=True)
+    except Exception as e:
+        print str(e)
+    
+    try:
+        (noWarpOutputPath, warpOutputPath) = \
+            generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
+                                                posError, fitError, isManualRegistration,
+                                                writeHeaders=False, overwrite=True)
+    except Exception as e:
+        print str(e)
     
     # Clean up the raw uncertainty image and any extraneous files
     rawXmlPath = rawUncertaintyPath + '.aux.xml'
@@ -266,6 +277,7 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slo
         else:     cmd.append('n')
         if slowMethod: cmd.append('y')
         else:          cmd.append('n')
+
         #print cmd
         #os.system('build/registerGeocamImage '+ refImagePath+' '+testImagePath+' '+transformPath+' --debug')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
@@ -316,6 +328,42 @@ def alignScaledImages(testImagePath, refImagePath, testImageScaling, workPrefix,
     if abs(testImageScaling - 1.0) < SCALE_TOLERANCE:
         # In this case just use the lower level function
         return alignImages(testImagePath, refImagePath, workPrefix, force, debug, slowMethod)
+
+   
+    # Generate a scaled version of the input image
+    scaledImagePath = workPrefix + '-scaledInputImage.tif'
+    outPercentage = str(testImageScaling*100.0)
+    cmd = 'gdal_translate -outsize ' + outPercentage +'% ' + outPercentage +'% '+ testImagePath +' '+ scaledImagePath
+    print cmd
+    os.system(cmd)
+    if not os.path.exists(scaledImagePath):
+        raise Exception('Failed to rescale image with command:\n' + cmd)
+    
+    # Call alignment with the scaled version
+    (scaledTform, confidence, scaledImageInliers, refInliers) = \
+            alignImages(scaledImagePath, refImagePath, workPrefix, force, debug, slowMethod)
+    
+    # De-scale the output transform so that it applies to the input sized image.
+    testInliers = []
+    for pixel in scaledImageInliers:
+        testInliers.append( (pixel[0]/testImageScaling, pixel[1]/testImageScaling) )
+    print 'scaled tform = \n' + str(scaledTform)
+    tform = scaledTform
+    for i in [0, 1, 3, 4, 6, 7]: # Scale the six coefficient values
+        tform[i] = tform[i] * testImageScaling
+    print 'tform = \n' + str(tform)
+
+    if not debug: # Clean up the scaled image
+        os.remove(scaledImagePath)
+
+    return (tform, confidence, testInliers, refInliers)
+
+
+
+def logRegistrationResults(outputPath, pixelTransform, confidence,
+                           refImagePath, imageToGdcTransform=None):
+    '''Log the registration results so they can be read back in later.
+       Provides enough data so that the image can be '''
 
     
     # Generate a scaled version of the input image
@@ -435,6 +483,7 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     return rmsError
 
 
+# TODO: Not all labels are the same size and location!
 def cropImageLabel(jpegPath, outputPath):
     '''Create a copy of a jpeg file with any label cropped off'''
     
@@ -450,13 +499,24 @@ def cropImageLabel(jpegPath, outputPath):
     CROP_AMOUNT = 56
     
     if 'NO_LABEL' in textOutput:
+        # TODO: Why does this sometimes fail?
         # The file is fine, just copy it.
-        shutil.copy(jpegPath, outputPath)
+        print 'Copy ' + jpegPath +' --> '+ outputPath
+        try:
+            shutil.copy(jpegPath, outputPath)
+        except:
+            print 'Copy failed, try again!'
+#            shutil.copy(jpegPath, outputPath)
+            os.system('cp ' + jpegPath +' '+ outputPath)
+            if not os.path.exists(outputPath):
+                raise Exception('Still failed!')
+            print 'Retry successful!'
     else:
+        print 'Detected image label!'
         # Trim the label off of the bottom of the image
         imageSize    = IrgGeoFunctions.getImageSize(jpegPath)
         imageSize[1] = imageSize[1] - CROP_AMOUNT
-        cmd = ('gdal_translate -srcwin 0 0 ' + str(imageSize[0]) +' '+ str(imageSize[1]) +' '+
+        cmd = ('gdal_translate -of jpeg -srcwin 0 0 ' + str(imageSize[0]) +' '+ str(imageSize[1]) +' '+
                jpegPath +' '+ outputPath)
         print cmd
         os.system(cmd)
@@ -468,8 +528,10 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     # Generate a high resolution grid of fake GCPs based on a transform we compute,
     # then call gdalwarp using a high order polynomial to accurately match our transform.
 
-    trans = transform.ProjectiveTransform.fit(numpy.asarray(gdcPoints),numpy.asarray(imagePoints))
-
+    #trans = transform.ProjectiveTransform.fit(numpy.asarray(gdcPoints),numpy.asarray(imagePoints))ls 
+    trans = transform.getTransform(numpy.asarray(gdcPoints),numpy.asarray(imagePoints))
+    transformName = trans.getJsonDict()['type']
+    
     tempPath = outputPath + '-temp.tif'
 
     # Generate a temporary image containing the grid of fake GCPs
@@ -481,13 +543,29 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     (width, height) = IrgGeoFunctions.getImageSize(imagePath)
     xStep = width /22
     yStep = height/22
+    MAX_DEG_SIZE = 20
+    minLon = 999 # Keep track of the lonlat size and don't write if it is too big.
+    minLat = 999 # - This would work better if it was in pixels, but how to get that size?
+    maxLon = -999
+    maxLat = -999
     for r in range(0,height,yStep):
         for c in range(0,width,xStep):
             pixel  = (c,r)
             lonlat = trans.forward(pixel)
             cmd += ' -gcp '+ str(c) +' '+str(r) +' '+str(lonlat[0]) +' '+str(lonlat[1])
+            if lonlat[0] < minLon:
+                minLon = lonlat[0]
+            if lonlat[1] < minLat:
+                minLat = lonlat[1]
+            if lonlat[0] > maxLon:
+                maxLon = lonlat[0]
+            if lonlat[1] > maxLat:
+                maxLat = lonlat[1]
     #print cmd
     os.system(cmd)
+    if max((maxLon - minLon), (maxLat - minLat)) > MAX_DEG_SIZE:
+        raise Exception('Warped image is too large to generate!\n'
+                        '-> LonLat bounds: ' + str((minLon, minLat, maxLon, maxLat)))
 
     # Now generate a warped geotiff.
     # - "order 2" looks terrible with fewer GCPs, but "order 1" does not accurately
@@ -500,27 +578,39 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     os.system(cmd)
 
     # Check output and cleanup
-    if not os.path.exists(outputPath):
-        raise Exception('Failed to create geotiff file: ' + outputPath)
     os.remove(tempPath)
+    if not os.path.exists(outputPath):
+        raise Exception('Failed to create warped geotiff file: ' + outputPath)
 
+    return transformName
 
-def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, fitError, overwrite=False):
+def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, fitError,
+                    isManualRegistration, writeHeaders, overwrite=False):
     '''Converts a plain tiff to a geotiff using the provided geo information.'''
 
     # Check inputs
     if len(imagePoints) != len(gdcPoints):
         raise Exception('Unequal length correspondence points passed to generateGeoTiff!')
 
-    noWarpOutputPath      = outputPrefix + '-no_warp.tif'
-    warpOutputPath        = outputPrefix + '-warp.tif'
+    noWarpOutputPath = outputPrefix + '-no_warp.tif'
+    warpOutputPath   = outputPrefix + '-warp.tif'
+
+    if isManualRegistration:
+        registrationMethodString = 'Manual'
+    else:
+        registrationMethodString = 'Automated'
+
+    # TODO: Do the manual registrations not use Landsat?
+    extraMetadataString = ('-mo POSITION_UNCERTAINTY_RMS_METERS=' +str(posError)
+                         + ' -mo FIT_ERROR_RMS_PIXELS='+str(fitError)
+                         + ' -mo REGISTRATION_METHOD='+registrationMethodString
+                         + ' -mo REGISTRATION_REFERENCE=Landsat')
 
     # First generate a geotiff that adds metadata but does not change the image data.
     # TODO - This may not be useful unless we can duplicate how they processed their RAW data!
     if (not os.path.exists(noWarpOutputPath)) or overwrite:
         print 'Generating UNWARPED output tiff'
-        cmd = ('gdal_translate -mo POSITION_UNCERTAINTY_RMS='+str(posError)
-               + ' -mo FIT_ERROR_RMS='+str(fitError)
+        cmd = ('gdal_translate ' + extraMetadataString
                + ' -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2" -a_srs "'
                + OUTPUT_PROJECTION +'" '+ imagePath +' '+ noWarpOutputPath)
         
@@ -543,26 +633,113 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, f
         os.system(cmd)
         if not os.path.exists(noWarpOutputPath):
             raise Exception('Failed to create geotiff file: ' + noWarpOutputPath)
+        
+        if writeHeaders:
+            generateStandaloneMetadataFile(noWarpOutputPath)
 
     # Now generate a warped geotiff.
     if (not os.path.exists(warpOutputPath)) or overwrite:
         print 'Generating WARPED output tiff'
 
-        qualityGdalwarp(imagePath, warpOutputPath, imagePoints, gdcPoints)
+        transformName = qualityGdalwarp(imagePath, warpOutputPath, imagePoints, gdcPoints)
         
         # Add some extra metadata fields.
-        cmd = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= -mo POSITION_UNCERTAINTY_RMS=' +str(posError)
-                + ' -mo FIT_ERROR_RMS='+str(fitError)
-                + ' -mo RESAMPLING_METHOD=cubic -mo WARP_METHOD=poly_order_1 ' + warpOutputPath)
+        cmd = ('gdal_edit.py -mo TIFFTAG_DOCUMENTNAME= ' + extraMetadataString
+                + ' -mo RESAMPLING_METHOD=cubic -mo WARP_TRANSFORM='+transformName+' ' + warpOutputPath)
         #print cmd
         os.system(cmd)
-        
+    
         if not os.path.exists(warpOutputPath):
-            raise Exception('Failed to create geotiff file: ' + warpOutputPath)
+            raise Exception('Failed to create warped geotiff file: ' + warpOutputPath)
+        
+        if writeHeaders:
+            generateStandaloneMetadataFile(warpOutputPath)
+        
 
+    return (noWarpOutputPath, warpOutputPath)
 
+def generateStandaloneMetadataFile(inputImagePath):
+    '''Convert geotiff metadata into a nicely formatted external text file.'''
 
+    # Silently quit when the input image does not exist, that error should already have
+    #  been handled.
+    if not os.path.exists(inputImagePath):
+        return
 
+    outputPath = os.path.splitext(inputImagePath)[0] + '_metadata.txt'
+
+    print 'Generating metadata file ' + outputPath
+
+    cmd = ['gdalinfo', inputImagePath]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+
+    
+    lines = textOutput.split('\n')
+
+    imageStartLine = metadataStartLine = coordSystemStartLine = gcpStartLine = imageSizeLine = 0
+    index = 0
+    for line in lines:
+        if 'Image Structure Metadata' in line:
+            imageStartLine = index
+        if line == 'Metadata:':
+            metadataStartLine = index
+        if 'Coordinate System is' in line:
+            coordSystemStartLine = index
+        if 'GCP[  0]' in line:
+            gcpStartLine = index
+        if 'Size is ' in line:
+            imageSizeLine = line
+        
+        index += 1
+
+    headerText = 'File Type: GeoTiff\n'+imageSizeLine + '\n'
+    
+    ipHeader = '''[Tie-Points Used For Georeferencing]
+{Point format is: (pixel column, pixel row) -> (longitude, latitude, 0)}\n'''
+    
+    if gcpStartLine > 0:
+        ipText = ipHeader + '\n'.join(lines[gcpStartLine:metadataStartLine])
+    else:
+        ipText = ''
+    
+    geoText = '[Geographic Coordinate Information]\n' + '\n'.join(lines[coordSystemStartLine+1:coordSystemStartLine+9])
+    
+    imageText = '[Image Structure Metadata]\n' + '\n'.join(lines[imageStartLine+1:])
+
+    METADATA_SKIP_LIST = ['TIFFTAG', 'AREA_OR_POINT']
+    
+    metadataText = lines[metadataStartLine+1:imageStartLine]
+    
+    accuracyText = '[Accuracy Measures For Georeferencing Result]\n'
+    cameraText = '[Camera Metadata]\n'
+    for line in metadataText:
+        # Ignore certain lines
+        skip = False
+        for item in METADATA_SKIP_LIST:
+            if item in line:
+                skip = True
+        if skip:
+            continue
+        # Otherwise send the line to the correct section
+        if 'EXIF' in line:
+            cameraText += line + '\n'
+        else:
+            accuracyText += line + '\n'
+            
+    # Generate the output file
+    f = open(outputPath, 'w')
+    f.write(headerText + '\n')
+    f.write(imageText + '\n')
+    f.write(geoText      + '\n\n')
+    if len(ipText) > 20:
+        f.write(ipText       + '\n\n')
+    f.write(accuracyText)
+    if len(cameraText) > 20: # The warped image does not have this information
+        f.write('\n' + cameraText)
+    f.close()
+    
+    print 'Finished writing header file.'
 
 
 

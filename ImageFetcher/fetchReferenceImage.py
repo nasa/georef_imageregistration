@@ -343,7 +343,7 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     landsatVisParams = {'bands': sensor['rgbBands'], 'min': 0, 'max': 0.4}
     #landsatVisParams = {'bands': sensor['rgbBands'], 'min': minVal, 'max': maxVal}
     #landsatVisParams = {'bands': sensor['rgbBands'], 'gain': '1.8, 1.5, 1.0'}
-    
+
     # Download the image and return percent valid pixels and the resolution we used.
     # - Earth Engine sometimes fails so try a few times before giving up.
     
@@ -362,7 +362,6 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
             miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
             return (percentValid, mppToUse)
     
-
 
 #======================================================================================================
 def main():
