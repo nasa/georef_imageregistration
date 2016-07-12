@@ -14,6 +14,7 @@ import dbLogger
 import source_database
 import offline_config
 import georefDbWrapper
+import IrgGeoFunctions
 
 '''
 This tool monitors for images which are finished processing
@@ -34,26 +35,42 @@ def findReadyImages(options, georefDb, numImages):
     return imageList
 
 
-def getImageInfo(frameDbData, georefDb):
+def getImageRegistrationInfo(frameDbData, georefDb):
     '''Get information for the specified image'''
+        
+    # Retrieve needed image info from our DB
+    registrationResult = georefDb.getRegistrationResult(frameDbData.mission, frameDbData.roll, frameDbData.frame)
     
     # This function generates/fetches the source image if it does not exist
-    sourceImagePath = source_database.getSourceImage(frameDbData)
+    registrationResult['sourceImagePath'] = source_database.getSourceImage(frameDbData)
     
-    # Retrieve needed image info from our DB
-<<<<<<< HEAD
-    (confidence, imageInliers, gdcInliers, registrationMpp) = \
-        georefDb.getResult(frameDbData.mission, frameDbData.roll, frameDbData.frame)
-    
-    return (sourceImagePath, imageInliers, gdcInliers, registrationMpp)
-=======
-    (confidence, imageInliers, gdcInliers, registrationMpp, isManual) = \
-        georefDb.getResult(frameDbData.mission, frameDbData.roll, frameDbData.frame)
-    
-    return (sourceImagePath, imageInliers, gdcInliers, registrationMpp, isManual)
->>>>>>> Current testing version of autoregistration software
+    return registrationResult
 
+def correctPixelCoordinates(registrationResult):
+    '''Rescales the pixel coordinates based on the resolution they were collected at
+       compared to the full image resolution.'''
+       
+    # TODO: Account for the image side labels adjusting the image size!
 
+    sourceHeight = registrationResult['manualImageHeight']
+    sourceWidth  = registrationResult['manualImageWidth' ]
+    
+    (outputWidth, outputHeight) = IrgGeoFunctions.getImageSize(registrationResult['sourceImagePath'])
+
+    if (sourceHeight != outputHeight) or (sourceWidth != outputWidth):
+
+        # Compute rescale
+        heightScale = float(outputHeight) / float(sourceHeight)
+        widthScale  = float(outputWidth)  / float(sourceWidth)
+
+        # Apply to each of the pixel coordinates
+        out = []
+        for pixel in registrationResult['imageInliers']:
+            newPixel = (pixel[0]*widthScale, pixel[1]*heightScale)
+            out.append(newPixel)
+        registrationResult['imageInliers'] = out
+    
+    return registrationResult
 
 def getOutputPrefix(mission, roll, frame):
     '''Return the output prefix for this frame'''
@@ -103,12 +120,9 @@ def main(argsIn):
     # Get images to process
     targetFrames = findReadyImages(options, georefDb, options.limit)
 
-<<<<<<< HEAD
-=======
     if len(targetFrames) == 0:
         print 'Did not find any frames ready to process.'
 
->>>>>>> Current testing version of autoregistration software
     count = 0
     for (mission, roll, frame) in targetFrames:
 
@@ -117,42 +131,28 @@ def main(argsIn):
             
             frameDbData = source_database.FrameInfo()
             frameDbData.loadFromDb(sourceDbCursor, mission, roll, frame)
-            #print 'Output Generator obtained data: ' + str(frameDbData)
-        
-<<<<<<< HEAD
-            (sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters) \
-                  = getImageInfo(frameDbData, georefDb)
-        
-            print sourceImagePath
-            print imageInliers
-            print gdcInliers
-            print minUncertaintyMeters
-=======
-            (sourceImagePath, imageInliers, gdcInliers, minUncertaintyMeters, isManual) \
-                  = getImageInfo(frameDbData, georefDb)
-        
-            #print sourceImagePath
-            #print imageInliers
-            #print gdcInliers
-            #print minUncertaintyMeters
->>>>>>> Current testing version of autoregistration software
-        
+            print 'Output Generator obtained data: ' + str(frameDbData)
+
+            # Get the registration info for this image, then apply manual pixel coord correction.
+            imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
+            if imageRegistrationInfo['isManual']:
+                imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
+    
             outputPrefix = getOutputPrefix(mission, roll, frame)
         
-            registration_common.recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-<<<<<<< HEAD
-                               minUncertaintyMeters, overwrite=True)
-=======
-                               minUncertaintyMeters, isManual, overwrite=True)
->>>>>>> Current testing version of autoregistration software
+            registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
+                                                   imageRegistrationInfo['imageInliers'],
+                                                   imageRegistrationInfo['gdcInliers'],
+                                                   imageRegistrationInfo['registrationMpp'],
+                                                   imageRegistrationInfo['isManual'], overwrite=True)
             
             # Clean up the source image we generated
-            os.remove(sourceImagePath)
+            os.remove(imageRegistrationInfo['sourceImagePath'])
             
             # Update the database to record that we wrote the image
             georefDb.markAsWritten(mission, roll, frame)
 
-            #break # DEBUG!
+            break # DEBUG!
 
         except Exception as e:
             print 'Caught exception:'

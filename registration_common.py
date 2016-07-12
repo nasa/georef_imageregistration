@@ -78,8 +78,11 @@ def estimateGroundResolution(focalLength, width, height, sensorWidth, sensorHeig
 
 
 def safeMakeDir(folder):
-    if not os.path.exists(folder):
+    '''Make sure a folder exists and ignore any errors.'''
+    try:
         os.mkdir(folder)
+    except:
+        pass
 
 def getWorkingPath(mission, roll, frame):
     '''Get a good location to process this image.'''
