@@ -501,46 +501,53 @@ class DatabaseLogger(object):
         return output
         
     
-    def getImagesReadyForOutput(self, confidence='HIGH', limit=0):
+    def getImagesReadyForOutput(self, confidence='HIGH', limit=0,
+                                autoOnly=False, manualOnly=False):
         '''Returns a list of images where the required registration information is available.'''
+
+        if autoOnly and manualOnly:
+            raise Exception("Can't require both manual and automatic images!")
 
         # First check the manual results, these are higher priority to process.
         output = []
-        cmd = ('SELECT over.extras, image.issMRF FROM geocamTiePoint_overlay over'+
-               ' INNER JOIN geocamTiePoint_imagedata image'+
-               ' ON over.imageData_id = image.id WHERE over.writtenToFile=0')
-        print cmd
-        rows = self._executeCommand(cmd)
-        
-        for row in rows:
-            try:
-                # Check if this image has enough information to be written.
-                data = json.loads(row[0])
+        if not autoOnly:
+            cmd = ('SELECT over.extras, image.issMRF FROM geocamTiePoint_overlay over'+
+                   ' INNER JOIN geocamTiePoint_imagedata image'+
+                   ' ON over.imageData_id = image.id WHERE over.writtenToFile=0')
+            print cmd
+            rows = self._executeCommand(cmd)
+            
+            for row in rows:
                 try:
-                    if len(data['points']) < 3:
+                    # Check if this image has enough information to be written.
+                    data = json.loads(row[0])
+                    try:
+                        if len(data['points']) < 3:
+                            continue
+                    except:
                         continue
-                except:
-                    continue
-                
-                # Otherwise add to the list
-                output.append(self._MRFToMissionRollFrame(row[1]))
-                
-                # Stop whenever we get enough data
-                if len(output) >= limit:
-                    return output
-            except: # For now just ignore failing entries
-                pass
+                    
+                    # Otherwise add to the list
+                    output.append(self._MRFToMissionRollFrame(row[1]))
+                    
+                    # Stop whenever we get enough data
+                    if len(output) >= limit:
+                        return output
+                except: # For now just ignore failing entries
+                    pass
+        # End manually registered search
 
-
-        # If we need more images, now look at the automatic table.
-        cmd = ('SELECT issMRF FROM geocamTiePoint_automatchresults WHERE matchConfidence="'
-               +confidence+'" AND writtenToFile=0')
-        if limit > 0:
-            cmd += ' LIMIT ' + str(limit)
-        rows = self._executeCommand(cmd)
-        
-        for row in rows:
-            output.append(self._MRFToMissionRollFrame(row[0]))
+        if not manualOnly:
+            # If we need more images, now look at the automatic table.
+            cmd = ('SELECT issMRF FROM geocamTiePoint_automatchresults WHERE matchConfidence="'
+                   +confidence+'" AND writtenToFile=0')
+            if limit > 0:
+                cmd += ' LIMIT ' + str(limit)
+            rows = self._executeCommand(cmd)
+            
+            for row in rows:
+                output.append(self._MRFToMissionRollFrame(row[0]))
+        # End automatic registration search
         
         return output
 
