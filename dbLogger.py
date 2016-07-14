@@ -208,9 +208,6 @@ class DatabaseLogger(object):
                                 transformText, imagePointText, gdcPointText))
         self._dbConnection.commit()
         return
-<<<<<<< HEAD
-=======
-
 
 
 import MySQLdb
@@ -236,14 +233,3 @@ if __name__ == "__main__":
     
     db.close()
     print 'done'
-
-
-
-
-
-
-
-
-
-
->>>>>>> Current testing version of autoregistration software

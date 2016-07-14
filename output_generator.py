@@ -1,6 +1,3 @@
-
-
-
 import os, sys
 import optparse
 import sqlite3
