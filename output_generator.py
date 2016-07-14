@@ -24,13 +24,14 @@ and generates the output files for them.
 # TODO: There are some duplicates with backlog_processor
 
 
-def findReadyImages(options, georefDb, numImages):
+def findReadyImages(options, georefDb):
     '''Get the next image which is ready to process'''
 
     if options.frame:
         return [(options.mission, options.roll, options.frame)]
 
-    imageList = georefDb.getImagesReadyForOutput(limit=numImages)
+    imageList = georefDb.getImagesReadyForOutput(limit=options.limit, autoOnly=options.autoOnly,
+                                                 manualOnly=options.manualOnly)
 
     return imageList
 
@@ -94,14 +95,23 @@ def main(argsIn):
         parser.add_option("--frame",   dest="frame",   default=None,
                           help="Specify a frame to process. Requires roll.")
         
+        parser.add_option("--manual-only", dest="manualOnly", action="store_true", default=False,
+                          help="Restrict to processing only manually-registered images.")
+        parser.add_option("--auto-only", dest="autoOnly", action="store_true", default=False,
+                          help="Restrict to processing only automatically-registered images.")
+
         parser.add_option("--limit",   dest="limit",   default=0, type="int",
                           help="Do not process more than this many frames.")
 
         (options, args) = parser.parse_args(argsIn)
 
+        # Error checking
         if ((options.mission or options.roll or options.frame) and 
             not (options.mission and options.roll and options.frame)):
             raise Exception('mission/roll/frame must be provided together!')
+            
+        if options.autoOnly and options.manualOnly:
+            raise Exception("auto-only and manual-only options are mutually exclusive!")
             
     except optparse.OptionError, msg:
         raise Usage(msg)
@@ -118,7 +128,7 @@ def main(argsIn):
     
 
     # Get images to process
-    targetFrames = findReadyImages(options, georefDb, options.limit)
+    targetFrames = findReadyImages(options, georefDb)
 
     if len(targetFrames) == 0:
         print 'Did not find any frames ready to process.'
