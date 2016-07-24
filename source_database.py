@@ -1,6 +1,3 @@
-
-
-
 import os, sys
 import subprocess
 import sqlite3
@@ -43,13 +40,10 @@ def convertRawFileToTiff(rawPath, outputPath):
         raise Exception('Failed to convert input file ' + rawPath)
 
 
-
-
 def getSourceImage(frameInfo, overwrite=False):
     '''Obtains the source image we will work on, ready to use.
        Downloads it, converts it, or whatever else is needed.
        Has a fixed location where the image is written to.'''
-    
     outputPath = registration_common.getWorkingPath(frameInfo.mission, frameInfo.roll, frameInfo.frame)
     if os.path.exists(outputPath) and (not overwrite):
         return outputPath
@@ -69,7 +63,6 @@ def getSourceImage(frameInfo, overwrite=False):
     return outputPath
 
 
-
 def getRawImageSize(rawPath):
     '''Returns the size in pixels of the raw camera file'''
 
@@ -85,6 +78,7 @@ def getRawImageSize(rawPath):
         height = int(parts[4])
         return (width, height)
     raise Exception('Unable to determine size of image: ' + rawPath)
+
 
 def grabJpegFile(mission, roll, frame, outputPath):
     '''Fetches a full size jpeg image from the ISS website'''
@@ -278,13 +272,13 @@ class FrameInfo(object):
         
     def loadFromDb(self, dbCursor, mission, roll, frame):
         '''Populate from an entry in the database'''
-        
         dbCursor.execute('select * from Frames where trim(MISSION)=? and trim(ROLL)=? and trim(FRAME)=?',
                        (mission, roll, frame))
         rows = dbCursor.fetchall()
         if len(rows) != 1: # Make sure we found the next lines
             raise Exception('Could not find any data for frame: ' +
                             getFrameString(mission, roll, frame))
+            
 
         rows = rows[0]
         #print rows

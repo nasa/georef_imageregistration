@@ -1,4 +1,3 @@
-
 import os
 import sys
 import math
@@ -273,8 +272,8 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slo
             os.remove(transformPath) # Clear out any old results
         
         print 'Running C++ image alignment tool...'
-        #cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/registerGeocamImage'
-        cmdPath = 'build/registerGeocamImage'
+        cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/registerGeocamImage'
+        
         cmd = [cmdPath, refImagePath, testImagePath, transformPath]
         if debug: cmd.append('y')
         else:     cmd.append('n')
@@ -439,6 +438,7 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     #print cmd
     os.system(cmd)
     if not os.path.exists(tempPath1):
+        print "tempPath1 is %s" % tempPath1
         raise Exception('Failed to generate GCP point image!')
 
     # Get the distance from each 
@@ -468,8 +468,7 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
         raise Exception('Failed to generate uncertainty image!')
 
     # Compute the RMS error using a simple command line tool
-    #cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
-    cmdPath = 'build/computeImageRms'
+    cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
     cmd4    = [cmdPath, outputPath]
     #print cmd4
     p = subprocess.Popen(cmd4, stdout=subprocess.PIPE)
@@ -490,9 +489,8 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
 def cropImageLabel(jpegPath, outputPath):
     '''Create a copy of a jpeg file with any label cropped off'''
     
-    # Check if there is a labelusing a simple command line tool
-    #cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
-    cmdPath = 'build/detectImageTag'
+    # Check if there is a label using a simple command line tool
+    cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
     cmd    = [cmdPath, jpegPath]
     print cmd
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
