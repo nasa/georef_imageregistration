@@ -26,6 +26,7 @@ To install, follow these steps:
 2 - Build the ImageRegistration C++ code.
   - I used the following CMake line to do this:
     cmake ..  -DOPENCV_INSTALL_DIR=/home/smcmich1/programs/opencv_install/
+    (for grace it's: cmake ..  -DOPENCV_INSTALL_DIR=/usr/local/)
   - Once this is built, everything should be ready to use.
 
 ==============================
@@ -61,7 +62,6 @@ DB change requests:
 - TODO: Images which are in our DB but not in the input DB file are not supported.
 
 - Add UNIQUE flag if not already done.
-- 
 
 - Disable GUI writing of gtiff files.  ---> Go ahead and start running the tools, ignoring this step!
 - Verify offline tools output folder.

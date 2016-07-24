@@ -20,15 +20,14 @@ and generates the output files for them.
 
 # TODO: There are some duplicates with backlog_processor
 
-
-def findReadyImages(options, georefDb):
+def findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb):
     '''Get the next image which is ready to process'''
 
-    if options.frame:
-        return [(options.mission, options.roll, options.frame)]
+    if frame:
+        return [(mission, roll, frame)]
 
-    imageList = georefDb.getImagesReadyForOutput(limit=options.limit, autoOnly=options.autoOnly,
-                                                 manualOnly=options.manualOnly)
+    imageList = georefDb.getImagesReadyForOutput(limit=limit, autoOnly=autoOnly,
+                                                 manualOnly=manualOnly)
 
     return imageList
 
@@ -79,6 +78,59 @@ def getOutputPrefix(mission, roll, frame):
     return prefix
 
 
+def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly):
+    # TODO: Turn the input DB into a full wrapper.
+    sourceDb = sqlite3.connect(offline_config.DB_PATH)
+    sourceDbCursor = sourceDb.cursor()
+    georefDb = georefDbWrapper.DatabaseLogger()
+    
+    # Get images to process
+    targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
+
+    if len(targetFrames) == 0:
+        print 'Did not find any frames ready to process.'
+
+    count = 0
+    successFrames = targetFrames
+    for (_mission, _roll, _frame) in targetFrames:
+        try:
+            print str((_mission, _roll, _frame))
+            
+            frameDbData = source_database.FrameInfo()
+            frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
+            print 'Output Generator obtained data: ' + str(frameDbData)
+
+            # Get the registration info for this image, then apply manual pixel coord correction.
+            imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
+            if imageRegistrationInfo['isManual']:
+                imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
+
+            outputPrefix = getOutputPrefix(_mission, _roll, _frame)
+        
+            registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
+                                                   imageRegistrationInfo['imageInliers'],
+                                                   imageRegistrationInfo['gdcInliers'],
+                                                   imageRegistrationInfo['registrationMpp'],
+                                                   imageRegistrationInfo['isManual'], overwrite=True)
+            
+            # Clean up the source image we generated
+            os.remove(imageRegistrationInfo['sourceImagePath'])
+            
+            # Update the database to record that we wrote the image
+            georefDb.markAsWritten(_mission, _roll, _frame)
+
+        except Exception as e:
+            print 'Caught exception:'
+            print(sys.exc_info()[0])
+            print traceback.print_exc()
+            successFrames.remove((_mission, _roll, _frame))
+            
+        # TODO: if it's autoOnly, make sure to save the metadatat file and and export into the autoregistration table in DB!
+        # If it's manual, the saving to database gets done by the script.
+        count += 1
+    return successFrames
+
+
 def main(argsIn):
 
     try:
@@ -115,59 +167,9 @@ def main(argsIn):
 
     print '---=== Output Generator has started ===---'
 
-
     print 'Connecting to our database...'
-    
-    # TODO: Turn the input DB into a full wrapper.
-    sourceDb = sqlite3.connect(offline_config.DB_PATH)
-    sourceDbCursor = sourceDb.cursor()
-    georefDb = georefDbWrapper.DatabaseLogger()
-    
-
-    # Get images to process
-    targetFrames = findReadyImages(options, georefDb)
-
-    if len(targetFrames) == 0:
-        print 'Did not find any frames ready to process.'
-
-    count = 0
-    for (mission, roll, frame) in targetFrames:
-
-        try:
-            print str((mission, roll, frame))
-            
-            frameDbData = source_database.FrameInfo()
-            frameDbData.loadFromDb(sourceDbCursor, mission, roll, frame)
-            print 'Output Generator obtained data: ' + str(frameDbData)
-
-            # Get the registration info for this image, then apply manual pixel coord correction.
-            imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
-            if imageRegistrationInfo['isManual']:
-                imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
-    
-            outputPrefix = getOutputPrefix(mission, roll, frame)
-        
-            registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
-                                                   imageRegistrationInfo['imageInliers'],
-                                                   imageRegistrationInfo['gdcInliers'],
-                                                   imageRegistrationInfo['registrationMpp'],
-                                                   imageRegistrationInfo['isManual'], overwrite=True)
-            
-            # Clean up the source image we generated
-            os.remove(imageRegistrationInfo['sourceImagePath'])
-            
-            # Update the database to record that we wrote the image
-            georefDb.markAsWritten(mission, roll, frame)
-
-            break # DEBUG!
-
-        except Exception as e:
-            print 'Caught exception:'
-            print(sys.exc_info()[0])
-            print traceback.print_exc()
-            
-        count += 1
-
+    runOutputGenerator(options.mission, options.roll, options.frame, options.limit, 
+                       options.autoOnly, options.manualOnly)
     print '---=== Output Generator has stopped ===---'
     
 
