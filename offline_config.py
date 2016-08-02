@@ -10,14 +10,15 @@ registration tools.
 # Input paths
 
 # Path to the input database
-DB_PATH = '/home/vagrant/georef/db.sqlt'
+# DB_PATH = '/home/vagrant/georef/db.sqlt'
+DB_PATH = '/home/smcmich1/db.sqlt'
 
 # Path to the DCRAW tool used to convert from raw images to tiffs
 DCRAW_PATH = '/home/smcmich1/repo/dcraw/dcraw'
 
 # Top level folder containing the input RAW images
 # RAW_IMAGE_FOLDER = '/media/network/ImagesDrop/RawESC'
-RAW_IMAGE_FOLDER ='/home/vagrant/gds/georef/data/georef_imageregistration/ImagesDrop/RawESC'
+RAW_IMAGE_FOLDER ='/home/geocam/georef/data/georef_imageregistration/ImagesDrop/RawESC'
 
 # We can either process the RAW file or an already converted JPEG file
 USE_RAW = False
@@ -36,7 +37,7 @@ OUTPUT_DATABASE_PATH = '/home/smcmich1/log_db_test.sqlt'
 
 # Top level folder where we write our output files
 # OUTPUT_IMAGE_FOLDER  = '/media/network/GeoRef/auto'
-OUTPUT_IMAGE_FOLDER = '/home/vagrant/gds/georef/data/georef_imageregistration/metadata_output'
+OUTPUT_IMAGE_FOLDER = '/home/geocam/georef/data/georef_imageregistration/metadata_output'
 
 # ==================================================
 # Input image filters
