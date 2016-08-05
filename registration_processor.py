@@ -1,6 +1,3 @@
-
-
-
 import os, sys
 import optparse
 import sqlite3
@@ -18,6 +15,7 @@ import IrgGeoFunctions
 import georefDbWrapper
 import source_database
 import offline_config
+
 
 '''
 This tool monitors for files that we have a center point for
@@ -164,32 +162,23 @@ def computeCenterGdcCoord(imageToGdcTransform, frameDbData):
     except: # Failed to compute location, use a flag value.
         return (-999,-999)
 
+
 def doNothing(options, frameInfo, searchNearby, georefDb):
     print 'DO NOTHING'
     return 0
 
+
 def processFrame(options, frameDbData, searchNearby=False):
     '''Process a single specified frame.
        Returns True if we attempted to perform image alignment and did not hit an exception.'''
-
-    ##print 'Starting dummy process for frame ' + frameDbData.getIdString()
-    #time.sleep(7)
-    #print 'Finished dummy process for frame ' + frameDbData.getIdString()
-    #return 0
-
     try:
-
         georefDb = georefDbWrapper.DatabaseLogger()
-    
         # Increase the error slightly for chained image transforms
         LOCAL_TRANSFORM_ERROR_ADJUST = 1.10
-    
         sourceImagePath = source_database.getSourceImage(frameDbData, overwrite=True)
-
         try:
             # If requested, get nearby previously matched frames to compare to.
             if searchNearby:
-        
                 sourceDb = sqlite3.connect(offline_config.DB_PATH)
                 sourceDbCursor = sourceDb.cursor()
                 
@@ -199,11 +188,8 @@ def processFrame(options, frameDbData, searchNearby=False):
                     matchedImageId = otherFrame.getIdString()
                 else:
                     matchedImageId = 'None'
-                
                 sourceDb.close()
-                
             else: # Try to register the image to Landsat
-                
                 print 'Attempting to register image...'
                 (imageToProjectedTransform, imageToGdcTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
                     register_image.register_image(sourceImagePath,
@@ -212,12 +198,10 @@ def processFrame(options, frameDbData, searchNearby=False):
                                                   refImagePath=None,
                                                   debug=False, force=True, slowMethod=True)
                 matchedImageId = 'Landsat'
-                
         except Exception as e:
             print 'Computing transform for frame '+frameDbData.getIdString()+', caught exception: ' + str(e)
             print "".join(traceback.format_exception(*sys.exc_info()))
             print 'Logging the result as no-confidence.'
-            
             confidence   = registration_common.CONFIDENCE_NONE
             imageInliers = []
             gdcInliers   = []
@@ -225,32 +209,25 @@ def processFrame(options, frameDbData, searchNearby=False):
             refMetersPerPixel = 999
             imageToProjectedTransform = registration_common.getIdentityTransform()
             imageToGdcTransform       = registration_common.getIdentityTransform()
-    
-    
+
         # A very rough estimation of localization error at the inlier locations!
         errorMeters = refMetersPerPixel * 1.5
-       
         # Convert into format that our DB is looking for.
         sourceDateTime = frameDbData.getMySqlDateTime()
-    
         if confidence > registration_common.CONFIDENCE_NONE:
             (centerLon, centerLat) = computeCenterGdcCoord(imageToGdcTransform, frameDbData)
         else:
             (centerLon, centerLat) = (-999, -999)
-
         # Log the results to our database
-        #print 'Logging results'
+        centerPointSource = frameDbData.centerPointSource 
         georefDb.addResult(frameDbData.mission, frameDbData.roll, frameDbData.frame,
                            imageToProjectedTransform, imageToGdcTransform,
                            centerLon, centerLat, refMetersPerPixel,
                            confidence, imageInliers, gdcInliers,
-                           matchedImageId, sourceDateTime)
-    
+                           matchedImageId, sourceDateTime, centerPointSource)
         # This tool just finds the interest points and computes the transform,
         # a different tool will actually write the output images.
-    
         os.remove(sourceImagePath) # Clean up the source image
-    
         print ('Finished processing frame ' + frameDbData.getIdString()
                + ' with confidence ' + registration_common.CONFIDENCE_STRINGS[confidence])
         return confidence
@@ -263,9 +240,9 @@ def processFrame(options, frameDbData, searchNearby=False):
     
 
 def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
-    '''Get the next image which is ready to process'''
+    '''Get the next image that is ready to process'''
 
-    # Get a list of all images which might be ready to register, ignoring center point.
+    # Get a list of all images which might be ready to register (center point does not have to be available).
     candidateImages = source_database.getCandidatesInMission(sourceDbCursor,
                         options.mission, options.roll, options.frame, checkCoords=False)
     
@@ -275,32 +252,44 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
     # - We have to check each frame in our DB one at a time to see if we already registered it.
     results = []
     for (mission, roll, frame, lon, lat) in candidateImages:
+        # Retrieve existing automatch results from our database        
+        (autolon, autolat, confidence, autoMatchCenterSource) = georefDb.getAutomatchResults(mission, roll, frame)
+        # Get the current best center point that is available. 
+        (bestlon, bestlat, confidence, bestCenterSource) = getBestCenterPoint(self, mission, roll, frame, lon=None, lat=None)    
+ 
+        lon = None
+        lat = None
+        centerPointSource = None       
         
-        #print 'Checking image: '+ mission +' '+ roll +' '+ frame
+        """
+        Below steps are needed to determine whether 1) image needs to be autoregistered, and if 2) better center source is available to re-autoregister.
+        """
+        if ((autolon is None) or (autolat is None)):  # the image was not autoregistered before
+            # auto register using best lon and lat
+            if ((bestlon is None) or (bestlat is None)):
+                continue
+            else: 
+                lon = bestlon
+                lat = bestlat
+                centerPointSource = bestCenterSource
+        elif (bestCenterSource != autoMatchCenterSource):  # image has been auto-registered, and better center point may be available.
+            if bestCenterSource == georefDb.MANUAL:  # Manual center point is available, so use that to auto register.
+                if ((bestlon is None) or (bestlat is None)):
+                    continue
+                else: 
+                    lon = bestlon
+                    lat = bestlat
+                    centerPointSource = georefDb.MANUAL
+            else: 
+                raise Exception('ERROR: check the values of best center source %s and auto match center source %s' % (bestCenterSource, autoMatchCenterSource))
+        else:  # no better center source is available.
+            continue  
         
-        # Retrieve information about this image from our database
-        (processed, confidence, lon, lat) = georefDb.getBestCenterPoint(
-                                                mission, roll, frame, lon, lat)
-        
-        # TODO: Allow local processing of images without a center point!
-        
-        # Skip this image if we don't have any lonlat info
-        if (lon == None) or (lat == None):
-            print 'No lon'
-            continue
-        
-        # Skip this image if our current processing result is satisfactory
-        if (processed and ((not options.overwrite) or (confidence > options.overwriteLevel))):
-            print 'Already have'
-            continue
-    
         # Load remaining information about the frame from the JSC source database
         # and run final quality check on the image
         frameInfo = source_database.FrameInfo()
         try:
-            print 'Loading frame info from our DB...'
             frameInfo.loadFromDb(sourceDbCursor, mission, roll, frame)
-            print str(frameInfo)
             good = frameInfo.isGoodAlignmentCandidate()
         except:
             good = False
@@ -311,6 +300,7 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
         # Now that we have a good frame, update some information before returning the frame info
         frameInfo.centerLon = lon
         frameInfo.centerLat = lat
+        frameInfo.centerPointSource = centerPointSource
         frameInfo = computeFrameInfoMetersPerPixel(frameInfo)
         
         # Retain info and see if we have enough frames
@@ -344,7 +334,6 @@ def print_stats(options, sourceDbCursor, georefDb):
             (mission, counts[0], counts[1], counts[2], counts[3], ratio))
 
 
-
 def sleepOnNumJobs(jobList, jobLimit):
     '''Sleep until the number of jobs get under a limit.'''
 
@@ -360,9 +349,11 @@ def sleepOnNumJobs(jobList, jobLimit):
                 dummy = job[1].get() # Currently we don't care about the status.
                 jobList.remove(job)
 
+
 def initWorker():
     '''Called at the start of each process'''
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+
 
 def main(argsIn):
 
@@ -464,6 +455,7 @@ def main(argsIn):
     
                 if not readyFrames:
                     print 'Registration Processor found no more data!'
+                    #TODO maybe it should sleep.
                     break
     
                 # Delete all frames from the readyFrames list that are already
@@ -477,6 +469,7 @@ def main(argsIn):
 
                 if not readyFrames:
                     print 'Registration Processor found no more data!'
+                    #TODO maybe it should sleep.
                     break
 
                 print 'Remaining frames:'
