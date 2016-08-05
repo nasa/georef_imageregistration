@@ -12,13 +12,20 @@ sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
 from geocamTiePoint import transform
 
+
+"""
+These are 
+"""
+GEOSENS = 'GeoSens'
+MANUAL = 'Manual'
+
+
 '''
    This file contains code for reading/writing the database
    containing our processing results.
    
    TODO: Update write statements to use safer input wrapping method!
 '''
-
 
 if __name__ == "__main__":
     
@@ -41,8 +48,6 @@ if __name__ == "__main__":
     
     db.close()
     print 'done'
-
-
 
 
 class DatabaseLogger(object):
@@ -172,6 +177,7 @@ class DatabaseLogger(object):
         # Otherwise compare the level
         level = registration_common.confidenceFromString(rows[0][0])
         return (level > overwriteLevel)
+    
 
     def getRegistrationResult(self, mission, roll, frame):
         '''Fetches a result from the database and packs it into a dictionary'''
@@ -200,6 +206,7 @@ class DatabaseLogger(object):
         
         return {'confidence':confidence, 'imageInliers':imageInliers,
                 'gdcInliers':gdcInliers, 'registrationMpp':registrationMpp, 'isManual':False}
+
 
     def getManualRegistrationResult(self, mission, roll, frame):
         '''As getResult, but only checks manual results.'''
@@ -268,55 +275,57 @@ class DatabaseLogger(object):
             return (lon, lat)
         return (None, None)
 
-    def getBestCenterPoint(self, mission, roll, frame, lon=None, lat=None):
-        '''Returns the best center point for this frame and the registration
-           status.  The input lonlat values are from the input JSC database.'''
+    
+    def getAutomatchResults(self, mission, roll, frame):
+        """
+        Returns existing automatch results for a given ISS ID.
+        """
+        centerPointSource = None
+        lonNew = None
+        latNew = None
+        confidence = None
         
         mrf = self._missionRollFrameToMRF(mission, roll, frame)
-        processed = False
-        confidence = 'NONE'
-        
-        print '=== Checking for our results for ' + mrf
-
-        # First check the registration results
-        cmd=('SELECT centerLon, centerLat, matchConfidence FROM'
+        cmd=('SELECT centerLon, centerLat, matchConfidence, centerPointSource FROM'
              +' geocamTiePoint_automatchresults WHERE issMRF="'+mrf+'"')
         #print cmd
         rows = self._executeCommand(cmd)
-        
         if len(rows) > 1:
             raise Exception('ERROR: Found '+ str(len(rows)) + ' entries for ' + mrf)
-        
+
         if len(rows) == 1:
             print 'Found: ' + str(rows)
             lonNew = rows[0][0] # TODO: Handle null values
             latNew = rows[0][1]
-            #print 'Found lon ' + str(lonNew) + ', found lat ' + str(latNew)
+            centerPointSource = rows[0][3]
             confidence = registration_common.confidenceFromString(rows[0][2])
-            processed  = True # TODO: Can we have an entry with no processing?
-            if confidence == registration_common.CONFIDENCE_HIGH:
-                (lon, lat) = (lonNew, latNew)
+#             if confidence == registration_common.CONFIDENCE_HIGH:  #TODO: Ask Scott about these lines.
+#                 (lon, lat) = (lonNew, latNew)
         else:
             print 'Did not find ' + mrf + ' in our DB'
-
+        
+        return (lonNew, latNew, confidence, centerPointSource)
+        
+    
+    def getBestCenterPoint(self, mission, roll, frame, lon=None, lat=None):
+        '''Returns the best center point for this frame and the registration
+           status.  The input lonlat values are from the input JSC database.'''
         # Check if there is a manual georef center point, the most trusted source.
         (lonNew, latNew) = self.getManualGeorefCenterPoint(mission, roll, frame)
-        if lonNew != None:
-            print 'Found manual entry for ' + mrf
-            processed  = True
+        if (lonNew != None) and (latNew !=None):
             confidence = registration_common.CONFIDENCE_HIGH
             (lon, lat) = (lonNew, latNew)
+            centerPointSource = MANUAL
+        else: 
+            # Check if there is a computed geosense center point
+            (lonNew, latNew) = self.getGeosenseCenterPoint(mission, roll, frame)
+            if lonNew != None:
+                (lon, lat) = (lonNew, latNew)
+                centerPointSource = GEOSENS
+                confidence = 'NONE'
+
+        return (lon, lat, confidence, centerPointSource)
             
-        if (lonNew!=None) or processed: # Already have the best coordinates
-            return (processed, confidence, lon, lat)
-        
-        # Check if there is a computed geosense center point
-        print 'Checking for geosense point...'
-        (lonNew, latNew) = self.getGeosenseCenterPoint(mission, roll, frame)
-        if lonNew != None:
-            print 'found it!'
-            (lon, lat) = (lonNew, latNew)
-        return (processed, confidence, lon, lat)
 
     def findNearbyGoodResults(self, timestamp, frameLimit, mission=None):
         '''Find all good results nearby a given time.
@@ -412,13 +421,12 @@ class DatabaseLogger(object):
                 pass
         return results
 
-
     
     def addResult(self, mission, roll, frame,
                   imageToProjectedTransform, imageToGdcTransform,
                   centerLat, centerLon, registrationMpp,
                   confidence, imageInliers, gdcInliers,
-                  matchedImageId, sourceTime):
+                  matchedImageId, sourceTime, centerPointSource):
         '''Adds a new result to the database'''
        
         # Pack some of the parameters in text format
@@ -434,7 +442,6 @@ class DatabaseLogger(object):
         dateText = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         mrf = self._missionRollFrameToMRF(mission, roll, frame)
-        centerPointSource = 'Autoregistration' # This field can be deleted?
         writtenToFile = 0
         
         cmd = ("REPLACE INTO geocamTiePoint_automatchresults (issMRF, matchedImageId,"
@@ -552,17 +559,17 @@ class DatabaseLogger(object):
         return output
 
 
-    
-# TODO Do we have any need for this function?
+    # TODO Do we have any need for this function?
     def getImagesReadyForRegistration(self, ):
-        '''Returns a list of image MRFs ready for autoregistration.
-           The requirements for registration are the center point
-           and a camera model.  If available, image quality information
-           can be considered.  The center point can be obtained from
-           one of multiple sources.'''
-
+        """
+        Returns a list of image MRFs ready for autoregistration.
+        The requirements for registration are the center point
+        and a camera model.  If available, image quality information
+        can be considered.  The center point can be obtained from
+        one of multiple sources.
+        """
         raise Exception('Center point is being computed elsewhere!')
-
+ 
         # TODO: Look at the table contents to refine further
         # Currently looks for telemetry + image entries with NO result entry.
         cmd = ('SELECT issMRF FROM (geocamTiePoint_geosens sens'+
@@ -572,22 +579,9 @@ class DatabaseLogger(object):
                ' ON sens.issMRF = im.issMRF)'+
                ' WHERE issMRF NOT IN (SELECT issMRF FROM geocamTiePoint_automatchresults)')
         rows = self._executeCommand(cmd)
-    
+     
         output = []
         for row in rows:
             output.append(_MRFToMissionRollFrame(row[0]))
-        
+         
         return output
-
-
-
-
-
-
-
-
-
-
-
-
-
