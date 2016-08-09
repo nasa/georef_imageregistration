@@ -83,6 +83,47 @@ def safeMakeDir(folder):
     except:
         pass
 
+
+def getWorkingDir(mission, roll, frame):
+    # Break up frames so that there are 1000 per folder
+    FRAMES_PER_FOLDER = 1000
+    FRAME_DIGITS = 6
+    frameFolderNum = (int(frame) // FRAMES_PER_FOLDER)*1000
+    frameFolder    = str(frameFolderNum).rjust(FRAME_DIGITS, '0')
+    
+    # Store data in /mission/roll/frameF/file, skip roll if E.
+    safeMakeDir(offline_config.OUTPUT_IMAGE_FOLDER)
+    
+    # make mission directory
+    subFolder = os.path.join(offline_config.OUTPUT_IMAGE_FOLDER, mission)
+    safeMakeDir(subFolder)
+    
+    # make roll directory
+    if not (roll.lower() == 'e'):
+        subFolder = os.path.join(subFolder, roll)
+        safeMakeDir(subFolder)
+        
+    # make frame directory
+    subFolder = os.path.join(subFolder, frameFolder)
+    safeMakeDir(subFolder)
+    
+    return subFolder
+
+
+def getZipFilePath(mission, roll, frame):
+    # Store data in /mission/mission-roll-frame/file
+    frameFolder = mission + '-' + roll + '-' + frame
+    safeMakeDir(offline_config.OUTPUT_IMAGE_FOLDER)
+    
+    subFolder = os.path.join(offline_config.OUTPUT_IMAGE_FOLDER, mission)
+    safeMakeDir(subFolder)
+    
+    subFolder = os.path.join(subFolder, frameFolder)
+    safeMakeDir(subFolder)
+    
+    return subFolder
+
+
 def getWorkingPath(mission, roll, frame):
     '''Get a good location to process this image.'''
     
@@ -95,22 +136,10 @@ def getWorkingPath(mission, roll, frame):
     FRAME_DIGITS = 6
     zFrame   = frame.rjust(FRAME_DIGITS, '0')
     filename = mission.lower() + roll.lower() + zFrame + ext
-    
-    # Break up frames so that there are 1000 per folder
-    FRAMES_PER_FOLDER = 1000
-    frameFolderNum = (int(frame) // FRAMES_PER_FOLDER)*1000
-    frameFolder    = str(frameFolderNum).rjust(FRAME_DIGITS, '0')
-    
-    # Store data in /mission/roll/frameF/file, skip roll if E.
-    safeMakeDir(offline_config.OUTPUT_IMAGE_FOLDER)
-    subFolder = os.path.join(offline_config.OUTPUT_IMAGE_FOLDER, mission)
-    safeMakeDir(subFolder)
-    if not (roll.lower() == 'e'):
-        subFolder = os.path.join(subFolder, roll)
-        safeMakeDir(subFolder)
-    subFolder = os.path.join(subFolder, frameFolder)
-    safeMakeDir(subFolder)
+ 
+    subFolder = getWorkingDir(mission, roll, frame)
     return os.path.join(subFolder, filename)
+
 
 # TODO: Move this to the transform.py file?
 def getFitError(imageInliers, gdcInliers):
@@ -134,11 +163,13 @@ def getFitError(imageInliers, gdcInliers):
 
 
 def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-                       minUncertaintyMeters, isManualRegistration=False, overwrite=True):
+                       minUncertaintyMeters, centerPointSource, 
+                       isManualRegistration=False, overwrite=True):
     '''Generates all the output image files that we create for each successfully processed image.'''
     
     # We generate two pairs of images, one containing the image data
     #  and another with the same format but containing the uncertainty distances.
+    outputPrefix = outputPrefix + '-' + centerPointSource
     uncertaintyOutputPrefix = outputPrefix + '-uncertainty'
     rawUncertaintyPath      = outputPrefix + '-uncertainty_raw.tif'
     
