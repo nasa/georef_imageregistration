@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os, sys
 import optparse
 import sqlite3
@@ -16,12 +17,10 @@ import georefDbWrapper
 import source_database
 import offline_config
 
-
 '''
 This tool monitors for files that we have a center point for
 and attempts to geo-register them.
 '''
-
 def computeFrameInfoMetersPerPixel(frameInfo):
     '''Estimate the meters per pixel value for a FrameInfo object'''
     frameInfo.metersPerPixel = registration_common.estimateGroundResolution(frameInfo.focalLength,
@@ -355,50 +354,10 @@ def initWorker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def main(argsIn):
-
-    try:
-        usage = "usage: registration_processor.py [--help]\n  "
-        parser = optparse.OptionParser(usage=usage)
-        
-        parser.add_option("--mission", dest="mission", default=None,
-                          help="Specify a mission to process.")
-        parser.add_option("--roll",    dest="roll",    default=None,
-                          help="Specify a roll to process.  Requires mission.")
-        parser.add_option("--frame",   dest="frame",   default=None,
-                          help="Specify a frame to process. Requires roll.")
-
-        parser.add_option("--local-search", dest="localSearch", action="store_true", default=False,
-                          help="Align images locally instead of to Landsat data.")
-
-        parser.add_option("--overwrite-level",   dest="overwriteLevel",   default=None,
-                          help="Set to NONE, LOW or HIGH to re-process images with those ratings.")
-
-        parser.add_option("--limit",   dest="limit",   default=0, type="int",
-                          help="Do not process more than this many frames.")
-
-        parser.add_option("--threads", type="int", dest="numThreads", default=4,
-                          help="Number of threads to use for processing.")
-
-        parser.add_option("--print-stats", dest="printStats", action="store_true", default=False,
-                          help="Instead of aligning images, print current result totals.")
-
-        (options, args) = parser.parse_args(argsIn)
-
-        #if ((options.mission or options.roll or options.frame) and 
-        #    not (options.mission and options.roll and options.frame)):
-        #    raise Exception('mission/roll/frame must be provided together!')
-
-        # Check options
-        if options.roll and not options.mission:
-            print 'Roll option requires mission option to be specified!'
-            return -1
-        if options.frame and not options.roll:
-            print 'Frame option requires roll option to be specified!'
-            return -1
-
-    except optparse.OptionError, msg:
-        raise Usage(msg)
+def registrationProcessor(options):
+    """
+    The main function that gets called with options.
+    """
 
     # Handle overwrite options
     options.overwrite = False
@@ -525,10 +484,51 @@ def main(argsIn):
     sourceDb.close()
     print '---=== Registration Processor has stopped ===---'
     
+    
+def main(argsIn):
+    try:
+        usage = "usage: registration_processor.py [--help]\n  "
+        parser = optparse.OptionParser(usage=usage)
+        
+        parser.add_option("--mission", dest="mission", default=None,
+                          help="Specify a mission to process.")
+        parser.add_option("--roll",    dest="roll",    default=None,
+                          help="Specify a roll to process.  Requires mission.")
+        parser.add_option("--frame",   dest="frame",   default=None,
+                          help="Specify a frame to process. Requires roll.")
 
-def test():
-    pass
+        parser.add_option("--local-search", dest="localSearch", action="store_true", default=False,
+                          help="Align images locally instead of to Landsat data.")
 
-# Simple test script
+        parser.add_option("--overwrite-level",   dest="overwriteLevel",   default=None,
+                          help="Set to NONE, LOW or HIGH to re-process images with those ratings.")
+
+        parser.add_option("--limit",   dest="limit",   default=0, type="int",
+                          help="Do not process more than this many frames.")
+
+        parser.add_option("--threads", type="int", dest="numThreads", default=4,
+                          help="Number of threads to use for processing.")
+
+        parser.add_option("--print-stats", dest="printStats", action="store_true", default=False,
+                          help="Instead of aligning images, print current result totals.")
+        (options, args) = parser.parse_args(argsIn)
+        #if ((options.mission or options.roll or options.frame) and 
+        #    not (options.mission and options.roll and options.frame)):
+        #    raise Exception('mission/roll/frame must be provided together!')
+
+        # Check options
+        if options.roll and not options.mission:
+            print 'Roll option requires mission option to be specified!'
+            return -1
+        if options.frame and not options.roll:
+            print 'Frame option requires roll option to be specified!'
+            return -1
+
+    except optparse.OptionError, msg:
+        raise Usage(msg)
+
+    registrationProcessor(options)
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

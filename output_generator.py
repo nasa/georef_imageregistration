@@ -13,6 +13,7 @@ import offline_config
 import georefDbWrapper
 import IrgGeoFunctions
 
+
 '''
 This tool monitors for images which are finished processing
 and generates the output files for them.
@@ -43,6 +44,7 @@ def getImageRegistrationInfo(frameDbData, georefDb):
     
     return registrationResult
 
+
 def correctPixelCoordinates(registrationResult):
     '''Rescales the pixel coordinates based on the resolution they were collected at
        compared to the full image resolution.'''
@@ -69,9 +71,9 @@ def correctPixelCoordinates(registrationResult):
     
     return registrationResult
 
+
 def getOutputPrefix(mission, roll, frame):
     '''Return the output prefix for this frame'''
-    
     filePath = registration_common.getWorkingPath(mission, roll, frame)
     prefix   = os.path.splitext(filePath)[0]
     
@@ -95,22 +97,20 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly):
     for (_mission, _roll, _frame) in targetFrames:
         try:
             print str((_mission, _roll, _frame))
-            
             frameDbData = source_database.FrameInfo()
             frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
-            print 'Output Generator obtained data: ' + str(frameDbData)
-
             # Get the registration info for this image, then apply manual pixel coord correction.
             imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
             if imageRegistrationInfo['isManual']:
                 imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
 
             outputPrefix = getOutputPrefix(_mission, _roll, _frame)
-        
+            #TODO: append the center point source to the outputPrefix.
             registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
                                                    imageRegistrationInfo['imageInliers'],
                                                    imageRegistrationInfo['gdcInliers'],
                                                    imageRegistrationInfo['registrationMpp'],
+                                                   imageRegistrationInfo['centerPointSource'],
                                                    imageRegistrationInfo['isManual'], overwrite=True)
             
             # Clean up the source image we generated

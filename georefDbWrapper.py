@@ -14,10 +14,10 @@ from geocamTiePoint import transform
 
 
 """
-These are 
+Center point source options.
 """
-GEOSENS = 'GeoSens'
-MANUAL = 'Manual'
+GEOSENS = 'geosens'
+MANUAL = 'manual'
 
 
 '''
@@ -189,7 +189,7 @@ class DatabaseLogger(object):
 
         # No manual result, check the auto results.
         mrf = self._missionRollFrameToMRF(mission, roll, frame)
-        cmd = 'SELECT matchConfidence, registrationMpp, extras FROM geocamTiePoint_automatchresults WHERE issMRF="'+mrf+'"'
+        cmd = 'SELECT matchConfidence, registrationMpp, extras, centerPointSource FROM geocamTiePoint_automatchresults WHERE issMRF="'+mrf+'"'
         rows = self._executeCommand(cmd)
 
         if len(rows) != 1: # Data not found
@@ -202,10 +202,12 @@ class DatabaseLogger(object):
         #imageToProjectedTransform = self._textToTransform(resultsDict.imageToProjectedTransform)
         imageInliers              = resultsDict['imageInliers']
         gdcInliers                = resultsDict['gdcInliers']
+        centerPointSource         = row[3]
         # Currently we don't read the date
         
         return {'confidence':confidence, 'imageInliers':imageInliers,
-                'gdcInliers':gdcInliers, 'registrationMpp':registrationMpp, 'isManual':False}
+                'gdcInliers':gdcInliers, 'registrationMpp':registrationMpp, 
+                'isManual':False, 'centerPointSource': centerPointSource}
 
 
     def getManualRegistrationResult(self, mission, roll, frame):
@@ -234,7 +236,8 @@ class DatabaseLogger(object):
 
         return {'confidence':registration_common.CONFIDENCE_HIGH, 'imageInliers':imageInliers,
                 'gdcInliers':gdcInliers, 'registrationMpp':DEFAULT_MPP, 'isManual':True,
-                'manualImageHeight':pixelHeight, 'manualImageWidth':pixelWidth}
+                'manualImageHeight':pixelHeight, 'manualImageWidth':pixelWidth, 
+                'centerPointSource': MANUAL}
 
 
     def getManualGeorefCenterPoint(self, mission, roll, frame):
