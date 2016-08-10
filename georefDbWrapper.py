@@ -12,7 +12,6 @@ sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
 from geocamTiePoint import transform
 
-
 """
 Center point source options.
 """
