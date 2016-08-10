@@ -94,6 +94,8 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly):
 
     count = 0
     successFrames = targetFrames
+    centerPointSources = []
+    
     for (_mission, _roll, _frame) in targetFrames:
         try:
             print str((_mission, _roll, _frame))
@@ -116,20 +118,21 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly):
             
             # Clean up the source image we generated
             os.remove(imageRegistrationInfo['sourceImagePath'])
-            
             # Update the database to record that we wrote the image
             georefDb.markAsWritten(_mission, _roll, _frame)
+            centerPointSources.append(centerPointSource)
 
         except Exception as e:
             print 'Caught exception:'
             print(sys.exc_info()[0])
             print traceback.print_exc()
             successFrames.remove((_mission, _roll, _frame))
+            centerPointSources.pop()
             
         # TODO: if it's autoOnly, make sure to save the metadatat file and and export into the autoregistration table in DB!
         # If it's manual, the saving to database gets done by the script.
         count += 1
-    return [successFrames, centerPointSource]
+    return [successFrames, centerPointSources]
 
 
 def main(argsIn):
