@@ -17,6 +17,7 @@ import georefDbWrapper
 import source_database
 import offline_config
 
+
 '''
 This tool monitors for files that we have a center point for
 and attempts to geo-register them.
@@ -254,7 +255,7 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
         # Retrieve existing automatch results from our database        
         (autolon, autolat, confidence, autoMatchCenterSource) = georefDb.getAutomatchResults(mission, roll, frame)
         # Get the current best center point that is available. 
-        (bestlon, bestlat, confidence, bestCenterSource) = getBestCenterPoint(self, mission, roll, frame, lon=None, lat=None)    
+        (bestlon, bestlat, confidence, bestCenterSource) = georefDb.getBestCenterPoint(mission, roll, frame, lon=None, lat=None)    
  
         lon = None
         lat = None
@@ -358,7 +359,6 @@ def registrationProcessor(options):
     """
     The main function that gets called with options.
     """
-
     # Handle overwrite options
     options.overwrite = False
     if options.overwriteLevel:
@@ -395,9 +395,7 @@ def registrationProcessor(options):
     count = 0
     
     try:
-    
         while True:
-    
             # Wait here if our work queue is full
             sleepOnNumJobs(jobList, jobLimit)
         

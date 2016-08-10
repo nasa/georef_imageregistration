@@ -312,6 +312,9 @@ class DatabaseLogger(object):
     def getBestCenterPoint(self, mission, roll, frame, lon=None, lat=None):
         '''Returns the best center point for this frame and the registration
            status.  The input lonlat values are from the input JSC database.'''
+        centerPointSource = None
+        confidence = None
+        
         # Check if there is a manual georef center point, the most trusted source.
         (lonNew, latNew) = self.getManualGeorefCenterPoint(mission, roll, frame)
         if (lonNew != None) and (latNew !=None):
