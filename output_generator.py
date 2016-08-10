@@ -105,6 +105,7 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly):
                 imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
 
             outputPrefix = getOutputPrefix(_mission, _roll, _frame)
+            centerPointSource = imageRegistrationInfo['centerPointSource']
             #TODO: append the center point source to the outputPrefix.
             registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
                                                    imageRegistrationInfo['imageInliers'],
@@ -128,7 +129,7 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly):
         # TODO: if it's autoOnly, make sure to save the metadatat file and and export into the autoregistration table in DB!
         # If it's manual, the saving to database gets done by the script.
         count += 1
-    return successFrames
+    return [successFrames, centerPointSource]
 
 
 def main(argsIn):
