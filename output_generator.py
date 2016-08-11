@@ -1,6 +1,8 @@
 import os, sys
 import optparse
 import sqlite3
+import time
+import datetime
 #from pysqlite2 import dbapi2 as sqlite3
 
 import registration_common
@@ -13,6 +15,11 @@ import offline_config
 import georefDbWrapper
 import IrgGeoFunctions
 
+import django
+from django.conf import settings
+django.setup()
+
+from geocamTiePoint import quadTree
 
 '''
 This tool monitors for images which are finished processing
@@ -80,63 +87,87 @@ def getOutputPrefix(mission, roll, frame):
     return prefix
 
 
-def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly):
+def setupOutputGenerator():
+    """
+    This needs to be called before we can run "runOutputGenerator"
+    """
     # TODO: Turn the input DB into a full wrapper.
     sourceDb = sqlite3.connect(offline_config.DB_PATH)
     sourceDbCursor = sourceDb.cursor()
     georefDb = georefDbWrapper.DatabaseLogger()
+    return [sourceDb, sourceDbCursor, georefDb]
+
+
+def createZipFile(successFrame, centerPointSource):
+    mission, roll, frame = successFrame
+    timenow = datetime.datetime.utcnow()
+    # define the path where zipfile will be saved
+    zipFileName = mission + '-' + roll + '-' + frame + '_' + centerPointSource + '_' + timenow.strftime('%Y-%m-%d-%H%M%S-UTC') + '.zip'
+    zipFileDir = registration_common.getZipFilePath(mission, roll, frame)
+    zipFilePath = zipFileDir + '/' + zipFileName 
+    # geotiff images and metadata files to be zipped
+    sourceFilesDir = registration_common.getWorkingDir(mission, roll, frame)
     
-    # Get images to process
-    targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
-
-    if len(targetFrames) == 0:
-        print 'Did not find any frames ready to process.'
-
-    count = 0
-    successFrames = targetFrames
-    centerPointSources = []
+    writer = quadTree.ZipWriter(sourceFilesDir, zipFilePath)
+    writer.addDir(frame, centerPointSource)
     
-    for (_mission, _roll, _frame) in targetFrames:
-        try:
-            print str((_mission, _roll, _frame))
-            frameDbData = source_database.FrameInfo()
-            frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
-            # Get the registration info for this image, then apply manual pixel coord correction.
-            imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
-            if imageRegistrationInfo['isManual']:
-                imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
 
-            outputPrefix = getOutputPrefix(_mission, _roll, _frame)
-            centerPointSource = imageRegistrationInfo['centerPointSource']
-            #TODO: append the center point source to the outputPrefix.
-            registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
-                                                   imageRegistrationInfo['imageInliers'],
-                                                   imageRegistrationInfo['gdcInliers'],
-                                                   imageRegistrationInfo['registrationMpp'],
-                                                   imageRegistrationInfo['centerPointSource'],
-                                                   imageRegistrationInfo['isManual'], overwrite=True)
+def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInterval):
+    """
+    Main function that gets called to generate the output.
+    """
+    sourceDb, sourceDbCursor, georefDb = setupOutputGenerator()
+    while True:
+        # Get images to process
+        targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
+        
+        # keep looking for autoregister data every minute.
+        while len(targetFrames) == 0:
+            time.sleep(60)    
+            targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
             
-            # Clean up the source image we generated
-            os.remove(imageRegistrationInfo['sourceImagePath'])
-            # Update the database to record that we wrote the image
-            georefDb.markAsWritten(_mission, _roll, _frame)
-            centerPointSources.append(centerPointSource)
-
-        except Exception as e:
-            print 'Caught exception:'
-            print(sys.exc_info()[0])
-            print traceback.print_exc()
-            successFrames.remove((_mission, _roll, _frame))
-            centerPointSources.pop()
+        successFrames = list(targetFrames)
+        
+        for (_mission, _roll, _frame) in targetFrames:
+            print "_mission is %s " % _mission
+            print "_roll is %s" % _roll
+            print "_frame is %s " % _frame
+            try:
+                print str((_mission, _roll, _frame))
+                frameDbData = source_database.FrameInfo()
+                frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
+                # Get the registration info for this image, then apply manual pixel coord correction.
+                imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
+                if imageRegistrationInfo['isManual']:
+                    imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
+    
+                outputPrefix = getOutputPrefix(_mission, _roll, _frame)
+                centerPointSource = imageRegistrationInfo['centerPointSource']
+                #TODO: append the center point source to the outputPrefix.
+                registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
+                                                       imageRegistrationInfo['imageInliers'],
+                                                       imageRegistrationInfo['gdcInliers'],
+                                                       imageRegistrationInfo['registrationMpp'],
+                                                       imageRegistrationInfo['centerPointSource'],
+                                                       imageRegistrationInfo['isManual'], overwrite=True)
+                
+                # create a zipfile.
+                createZipFile((_mission, _roll, _frame), centerPointSource)
+                
+                # Clean up the source image we generated
+                os.remove(imageRegistrationInfo['sourceImagePath'])
+                # Update the database to record that we wrote the image
+                georefDb.markAsWritten(_mission, _roll, _frame)
+    
+            except:
+#                 print 'Caught exception:'
+                successFrames.remove((_mission, _roll, _frame))
+                test = successFrames
+#                 continue
+        time.sleep(sleepInterval)
             
-        # TODO: if it's autoOnly, make sure to save the metadatat file and and export into the autoregistration table in DB!
-        # If it's manual, the saving to database gets done by the script.
-        count += 1
-    return [successFrames, centerPointSources]
-
 
 def main(argsIn):
-
     try:
         usage = "usage: output_generator.py [--help]\n  "
         parser = optparse.OptionParser(usage=usage)
@@ -155,6 +186,8 @@ def main(argsIn):
 
         parser.add_option("--limit",   dest="limit",   default=0, type="int",
                           help="Do not process more than this many frames.")
+        parser.add_option("--sleepInterval",   dest="interval",   default=0, type="int",
+                          help="Sleep interval in seconds (frequency)")
 
         (options, args) = parser.parse_args(argsIn)
 
@@ -173,12 +206,9 @@ def main(argsIn):
 
     print 'Connecting to our database...'
     runOutputGenerator(options.mission, options.roll, options.frame, options.limit, 
-                       options.autoOnly, options.manualOnly)
+                       options.autoOnly, options.manualOnly, options.sleepInterval)
     print '---=== Output Generator has stopped ===---'
     
-
-#def test():
-
 
 # Simple test script
 if __name__ == "__main__":

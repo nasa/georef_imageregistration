@@ -525,7 +525,8 @@ class DatabaseLogger(object):
         if not autoOnly:
             cmd = ('SELECT over.extras, image.issMRF FROM geocamTiePoint_overlay over'+
                    ' INNER JOIN geocamTiePoint_imagedata image'+
-                   ' ON over.imageData_id = image.id WHERE over.writtenToFile=0')
+                   ' ON over.imageData_id = image.id WHERE over.writtenToFile=0 and readyToExport=1')
+            
             print cmd
             rows = self._executeCommand(cmd)
             
@@ -542,9 +543,9 @@ class DatabaseLogger(object):
                     # Otherwise add to the list
                     output.append(self._MRFToMissionRollFrame(row[1]))
                     
-                    # Stop whenever we get enough data
-                    if len(output) >= limit:
-                        return output
+#                     # Stop whenever we get enough data
+#                     if len(output) >= limit:
+#                         return output
                 except: # For now just ignore failing entries
                     pass
         # End manually registered search
