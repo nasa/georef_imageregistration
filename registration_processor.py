@@ -387,9 +387,9 @@ def registrationProcessor(options):
 
     # Don't let our list of pending jobs get too enormous.
     jobLimit = options.limit
-    if jobLimit > 60:
+    if (jobLimit < 1) or (jobLimit > 60):
         jobLimit = 60
-    
+
     readyFrames = []
     jobList  = []
     count = 0
