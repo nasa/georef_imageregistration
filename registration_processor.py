@@ -252,50 +252,41 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
     # - We have to check each frame in our DB one at a time to see if we already registered it.
     results = []
     for (mission, roll, frame, lon, lat) in candidateImages:
+        # Load remaining information about the frame from the JSC source database
+        frameInfo = source_database.FrameInfo()
+        try:
+            frameInfo.loadFromDb(sourceDbCursor, mission, roll, frame)
+            # make sure the image is a good alignment candidate (no clouds, good exposure, etc). If not, skip
+            good = frameInfo.isGoodAlignmentCandidate()
+        except: 
+            print "failed to load information about the frame %s, %s, %s" % (mission, roll, frame)
+            good = False
+        
+        if not good:
+            print 'Bad candidate'
+            continue
+        
+        # At this point, frameInfo may contain centerLon and centerLat (the "AUTOWCENTER" source).
+        
         # Retrieve existing automatch results from our database        
         (autolon, autolat, confidence, autoMatchCenterSource) = georefDb.getAutomatchResults(mission, roll, frame)
         # Get the current best center point that is available. 
-        (bestlon, bestlat, confidence, bestCenterSource) = georefDb.getBestCenterPoint(mission, roll, frame, lon=None, lat=None)    
+        (bestlon, bestlat, confidence, bestCenterSource) = georefDb.getBestCenterPoint(mission, roll, frame, frameInfo)    
  
         lon = None
         lat = None
         centerPointSource = None       
         
-        """
-        Below steps are needed to determine whether 1) image needs to be autoregistered, and if 2) better center source is available to re-autoregister.
-        """
-        if ((autolon is None) or (autolat is None)):  # the image was not autoregistered before
-            # auto register using best lon and lat
-            if ((bestlon is None) or (bestlat is None)):
-                continue
-            else: 
-                lon = bestlon
-                lat = bestlat
-                centerPointSource = bestCenterSource
-        elif (bestCenterSource != autoMatchCenterSource):  # image has been auto-registered, and better center point may be available.
-            if bestCenterSource == georefDb.MANUAL:  # Manual center point is available, so use that to auto register.
-                if ((bestlon is None) or (bestlat is None)):
-                    continue
-                else: 
-                    lon = bestlon
-                    lat = bestlat
-                    centerPointSource = georefDb.MANUAL
-            else: 
-                raise Exception('ERROR: check the values of best center source %s and auto match center source %s' % (bestCenterSource, autoMatchCenterSource))
-        else:  # no better center source is available.
-            continue  
-        
-        # Load remaining information about the frame from the JSC source database
-        # and run final quality check on the image
-        frameInfo = source_database.FrameInfo()
-        try:
-            frameInfo.loadFromDb(sourceDbCursor, mission, roll, frame)
-            good = frameInfo.isGoodAlignmentCandidate()
-        except:
-            good = False
-        if not good:
-            print 'Bad candidate'
+        if (autolon and autolat) and ((autoMatchCenterSource != bestCenterSource) and (autoMatchCenterSource != georefDb.MANUAL)):
+            # The image has been autoregistered and no better data is available.
+            lon = autolon
+            lat = autolat
+            centerPointSource = autoMatchCenterSource
             continue
+        else:  # not previously auto registered or there is better data available.
+            lon = bestlon
+            lat = bestlat
+            centerPointSource = bestCenterSource
     
         # Now that we have a good frame, update some information before returning the frame info
         frameInfo.centerLon = lon

@@ -5,6 +5,7 @@ import datetime
 import json
 import registration_common
 import offline_config
+from __builtin__ import None
 
 basepath    = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
@@ -13,11 +14,11 @@ sys.path.insert(0, basepath + '/../geocamUtilWeb')
 from geocamTiePoint import transform
 
 """
-Center point source options.
+Center point source options (in order of "goodness").
 """
-GEOSENS = 'geosens'
 MANUAL = 'manual'
-
+AUTOWCENTER = 'autowcenterpt'
+GEOSENS = 'geosens'
 
 '''
    This file contains code for reading/writing the database
@@ -263,7 +264,7 @@ class DatabaseLogger(object):
                 return (lon, lat)
         return (None, None)
 
-    def getGeosenseCenterPoint(self, mission, roll, frame):
+    def getGeosensCenterPoint(self, mission, roll, frame):
         '''Returns the lon/lat computed by our geosense tool.
            Returns (None, None) if not available'''
         
@@ -309,21 +310,32 @@ class DatabaseLogger(object):
         return (lonNew, latNew, confidence, centerPointSource)
         
     
-    def getBestCenterPoint(self, mission, roll, frame, lon=None, lat=None):
+    def getBestCenterPoint(self, mission, roll, frame, frameInfo):
         '''Returns the best center point for this frame and the registration
            status.  The input lonlat values are from the input JSC database.'''
         centerPointSource = None
         confidence = None
+        lon = None
+        lat = None
         
+        # see if the center lat and lon can be retrieved from CEO's database.]
+        if (frameInfo.centerPointSource == AUTOWCENTER):
+            ceoCenterLon = frameInfo.centerLon 
+            ceoCenterLat = frameInfo.centerLat
+         
         # Check if there is a manual georef center point, the most trusted source.
-        (lonNew, latNew) = self.getManualGeorefCenterPoint(mission, roll, frame)
-        if (lonNew != None) and (latNew !=None):
+        (manualLon, manualLat) = self.getManualGeorefCenterPoint(mission, roll, frame)
+        if manualLon and manualLat:
             confidence = registration_common.CONFIDENCE_HIGH
-            (lon, lat) = (lonNew, latNew)
+            (lon, lat) = (manualLon, manualLat)
             centerPointSource = MANUAL
+        elif ceoCenterLon and ceoCenterLat:
+            (lon, lat) = (ceoCenterLon, ceoCenterLat)
+            centerPointSource = AUTOWCENTER
+            confidence = 'None'
         else: 
             # Check if there is a computed geosense center point
-            (lonNew, latNew) = self.getGeosenseCenterPoint(mission, roll, frame)
+            (lonNew, latNew) = self.getGeosensCenterPoint(mission, roll, frame)
             if lonNew != None:
                 (lon, lat) = (lonNew, latNew)
                 centerPointSource = GEOSENS
