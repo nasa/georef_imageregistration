@@ -18,7 +18,6 @@ DCRAW_PATH = '/home/smcmich1/repo/dcraw/dcraw'
 
 # Top level folder containing the input RAW images
 RAW_IMAGE_FOLDER = '/media/network/ImagesDrop/RawESC'
-# RAW_IMAGE_FOLDER ='/home/geocam/georef/data/georef_imageregistration/ImagesDrop/RawESC'
 
 # We can either process the RAW file or an already converted JPEG file
 USE_RAW = False
@@ -37,7 +36,6 @@ OUTPUT_DATABASE_PATH = '/home/smcmich1/log_db_test.sqlt'
 
 # Top level folder where we write our output files
 OUTPUT_IMAGE_FOLDER  = '/media/network/GeoRef'
-# OUTPUT_IMAGE_FOLDER = '/home/geocam/georef/data/georef_imageregistration/metadata_output'
 
 # ==================================================
 # Input image filters
