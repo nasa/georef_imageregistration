@@ -10,6 +10,8 @@ import traceback
 
 import dbLogger
 
+import georefDbWrapper as georefDb
+
 '''
 This file contains tools for reading the source database and
 some of the input file formats.
@@ -249,6 +251,7 @@ class FrameInfo(object):
         self.frame           = None
         self.centerLon       = None
         self.centerLat       = None
+        self.centerPointSource = None
         self.nadirLon        = None
         self.nadirLat        = None
         self.altitude        = None
@@ -279,7 +282,6 @@ class FrameInfo(object):
             raise Exception('Could not find any data for frame: ' +
                             getFrameString(mission, roll, frame))
             
-
         rows = rows[0]
         #print rows
         self.mission         = mission
@@ -298,6 +300,8 @@ class FrameInfo(object):
         self.nadirLon        = float(rows[22])
         self.camera          = str(rows[23]).strip()
         self.film            = str(rows[24]).strip()
+        if (self.centerLat) and (self.centerLon):
+            self.centerPointSource = georefDb.AUTOWCENTER
         self.metersPerPixel  = None # This information is not stored in the database
         
         # Clean up the time format
