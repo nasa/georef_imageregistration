@@ -5,7 +5,6 @@ import datetime
 import json
 import registration_common
 import offline_config
-from __builtin__ import None
 
 basepath    = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
