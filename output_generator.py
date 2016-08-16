@@ -187,7 +187,7 @@ def main(argsIn):
 
         parser.add_option("--limit",   dest="limit",   default=0, type="int",
                           help="Do not process more than this many frames.")
-        parser.add_option("--sleepInterval",   dest="interval",   default=0, type="int",
+        parser.add_option("--sleepInterval",   dest="sleepInterval",   default=0, type="int",
                           help="Sleep interval in seconds (frequency)")
 
         (options, args) = parser.parse_args(argsIn)
