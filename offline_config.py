@@ -10,7 +10,7 @@ registration tools.
 # Input paths
 
 # Path to the input database
-DB_PATH = '/home/vagrant/gds/georef/db.sqlt'
+DB_PATH = '/home/smcmich1/db.sqlt'
 
 # Path to the DCRAW tool used to convert from raw images to tiffs
 DCRAW_PATH = '/home/smcmich1/repo/dcraw/dcraw'
