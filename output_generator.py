@@ -116,7 +116,12 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly, sleepI
     """
     Main function that gets called to generate the output.
     """
-    sleepInterval = int(sleepInterval)
+    try: 
+        sleepInterval = int(sleepInterval)
+    except:
+        print "Invalid sleep interval. Set the value to 0"
+        sleepInterval = 0
+    
     sourceDb, sourceDbCursor, georefDb = setupOutputGenerator()
     while True:
         # Get images to process
@@ -187,7 +192,8 @@ def main(argsIn):
 
         parser.add_option("--limit",   dest="limit",   default=0, type="int",
                           help="Do not process more than this many frames.")
-        parser.add_option("--sleepInterval",   dest="sleepInterval",   default=0, type="int",
+        
+        parser.add_option("--sleepInterval",   dest="sleepInterval",   default="0",
                           help="Sleep interval in seconds (frequency)")
 
         (options, args) = parser.parse_args(argsIn)
