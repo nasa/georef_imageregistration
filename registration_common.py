@@ -112,13 +112,13 @@ def getWorkingDir(mission, roll, frame):
 
 def getZipFilePath(mission, roll, frame):
     # Store data in /mission/mission-roll-frame/file
-    frameFolder = mission + '-' + roll + '-' + frame
-    safeMakeDir(offline_config.OUTPUT_IMAGE_FOLDER)
+    issIdFolder = mission + '-' + roll + '-' + frame
+    safeMakeDir(offline_config.OUTPUT_ZIP_FOLDER)
     
-    subFolder = os.path.join(offline_config.OUTPUT_IMAGE_FOLDER, mission)
+    subFolder = os.path.join(offline_config.OUTPUT_ZIP_FOLDER, mission)
     safeMakeDir(subFolder)
     
-    subFolder = os.path.join(subFolder, frameFolder)
+    subFolder = os.path.join(subFolder, issIdFolder)
     safeMakeDir(subFolder)
     
     return subFolder
