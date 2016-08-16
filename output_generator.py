@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import os, sys
 import optparse
 import sqlite3
@@ -112,21 +113,15 @@ def createZipFile(successFrame, centerPointSource):
     writer.addDir(frame, centerPointSource)
     
 
-def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInterval):
+def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInterval):
     """
     Main function that gets called to generate the output.
     """
-    try: 
-        sleepInterval = int(sleepInterval)
-    except:
-        print "Invalid sleep interval. Set the value to 0"
-        sleepInterval = 0
-    
     sourceDb, sourceDbCursor, georefDb = setupOutputGenerator()
     while True:
         # Get images to process
         targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
-        
+        print "found target frames"
         # keep looking for autoregister data every minute.
         while len(targetFrames) == 0:
             time.sleep(60)    
@@ -172,12 +167,10 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly, sleepI
 #                 continue
         time.sleep(sleepInterval)
             
-
-def main(argsIn):
-    try:
-        usage = "usage: output_generator.py [--help]\n  "
-        parser = optparse.OptionParser(usage=usage)
-        
+            
+def main():
+    try: 
+        parser = optparse.OptionParser('usage: %prog')
         parser.add_option("--mission", dest="mission", default=None,
                           help="Specify a mission to process.")
         parser.add_option("--roll",    dest="roll",    default=None,
@@ -189,34 +182,33 @@ def main(argsIn):
                           help="Restrict to processing only manually-registered images.")
         parser.add_option("--auto-only", dest="autoOnly", action="store_true", default=False,
                           help="Restrict to processing only automatically-registered images.")
-
+    
         parser.add_option("--limit",   dest="limit",   default=0, type="int",
                           help="Do not process more than this many frames.")
         
-        parser.add_option("--sleepInterval",   dest="sleepInterval",   default="0",
+        parser.add_option("--sleepInterval",   dest="sleepInterval",   default=0, type="int",
                           help="Sleep interval in seconds (frequency)")
-
-        (options, args) = parser.parse_args(argsIn)
-
+        opts, _args = parser.parse_args()
+        
         # Error checking
-        if ((options.mission or options.roll or options.frame) and 
-            not (options.mission and options.roll and options.frame)):
+        if ((opts.mission or opts.roll or opts.frame) and 
+            not (opts.mission and opts.roll and opts.frame)):
             raise Exception('mission/roll/frame must be provided together!')
             
-        if options.autoOnly and options.manualOnly:
-            raise Exception("auto-only and manual-only options are mutually exclusive!")
-            
+        if opts.autoOnly and opts.manualOnly:
+            raise Exception("auto-only and manual-only opts are mutually exclusive!")
+    
     except optparse.OptionError, msg:
         raise Usage(msg)
-
+    
     print '---=== Output Generator has started ===---'
 
     print 'Connecting to our database...'
-    runOutputGenerator(options.mission, options.roll, options.frame, options.limit, 
-                       options.autoOnly, options.manualOnly, options.sleepInterval)
-    print '---=== Output Generator has stopped ===---'
+    output_generator(opts.mission, opts.roll, opts.frame, opts.limit, 
+                       opts.autoOnly, opts.manualOnly, opts.sleepInterval)
     
+    print '---=== Output Generator has stopped ===---'
 
-# Simple test script
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+
+if __name__ == '__main__':
+    main()
