@@ -34,7 +34,10 @@ GEOREF_DB_NAME="georef"
 OUTPUT_DATABASE_PATH = '/home/smcmich1/log_db_test.sqlt'
 
 # Top level folder where we write our output files
-OUTPUT_IMAGE_FOLDER  = '/media/network/GeoRef'
+# OUTPUT_IMAGE_FOLDER  = '/media/network/GeoRef'
+OUTPUT_IMAGE_FOLDER = '/tmp/sourceFiles'
+
+OUTPUT_ZIP_FOLDER = '/media/network/GeoRef/export'
 
 # ==================================================
 # Input image filters
