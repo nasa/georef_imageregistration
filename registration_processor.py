@@ -277,7 +277,7 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
         lat = None
         centerPointSource = None       
         
-        if (autolon and autolat) and ((autoMatchCenterSource != bestCenterSource) and (autoMatchCenterSource != georefDb.MANUAL)):
+        if (autolon and autolat) and ((autoMatchCenterSource != bestCenterSource) and (autoMatchCenterSource != georefDbWrapper.MANUAL)):
             # The image has been autoregistered and no better data is available.
             lon = autolon
             lat = autolat
