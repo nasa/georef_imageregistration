@@ -116,6 +116,7 @@ def runOutputGenerator(mission, roll, frame, limit, autoOnly, manualOnly, sleepI
     """
     Main function that gets called to generate the output.
     """
+    sleepInterval = int(sleepInterval)
     sourceDb, sourceDbCursor, georefDb = setupOutputGenerator()
     while True:
         # Get images to process
