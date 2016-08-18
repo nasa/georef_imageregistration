@@ -22,6 +22,7 @@ django.setup()
 
 from geocamTiePoint import quadTree
 
+
 '''
 This tool monitors for images which are finished processing
 and generates the output files for them.
@@ -126,7 +127,7 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
         while len(targetFrames) == 0:
             time.sleep(60)    
             targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
-            
+        
         successFrames = list(targetFrames)
         
         for (_mission, _roll, _frame) in targetFrames:
@@ -138,9 +139,9 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
                 frameDbData = source_database.FrameInfo()
                 #frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
                 frameDbData.mission = _mission
-		frameDbData.roll = _roll
-		frameDbData.frame = _frame
-		# Get the registration info for this image, then apply manual pixel coord correction.
+                frameDbData.roll = _roll
+                frameDbData.frame = _frame
+        		# Get the registration info for this image, then apply manual pixel coord correction.
                 imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
                 if imageRegistrationInfo['isManual']:
                     imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
@@ -163,7 +164,8 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
                 # Update the database to record that we wrote the image
                 georefDb.markAsWritten(_mission, _roll, _frame)
     
-            except:
+            except Exception as e:
+                print e
 #                 print 'Caught exception:'
                 successFrames.remove((_mission, _roll, _frame))
                 test = successFrames
