@@ -136,8 +136,11 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
             try:
                 print str((_mission, _roll, _frame))
                 frameDbData = source_database.FrameInfo()
-                frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
-                # Get the registration info for this image, then apply manual pixel coord correction.
+                #frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
+                frameDbData.mission = _mission
+		frameDbData.roll = _roll
+		frameDbData.frame = _frame
+		# Get the registration info for this image, then apply manual pixel coord correction.
                 imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
                 if imageRegistrationInfo['isManual']:
                     imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
