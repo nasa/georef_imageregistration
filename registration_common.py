@@ -52,7 +52,6 @@ def isPixelValid(pixel, size):
 def estimateGroundResolution(focalLength, width, height, sensorWidth, sensorHeight,
                              stationLon, stationLat, stationAlt, centerLon, centerLat, tilt=0.0):
     '''Estimates a ground resolution in meters per pixel using the focal length.'''
-    
     # TODO: Use the angle to get a more accurate computation!
     # Divide by four since it is half the distance squared
     sensorDiag = math.sqrt(sensorWidth*sensorWidth/4 + sensorHeight*sensorHeight/4)

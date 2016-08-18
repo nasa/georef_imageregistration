@@ -381,14 +381,10 @@ class FrameInfo(object):
     
     def isGoodAlignmentCandidate(self):
         '''Return True if the image is a good candidate for automatic alignment'''
-        rawPath = self.rawPath
-        if offline_config.USE_RAW == False:
-            rawPath = True
-        
         return (self.isExposureGood() and
                 self.isTiltGood() and
                 self.isCloudPercentageGood() and
-                rawPath)
+                self.rawPath)
 
     def isCenterWithinDist(self, lon, lat, dist):
         '''Returns True if the frame center is within a distance of lon/lat.
