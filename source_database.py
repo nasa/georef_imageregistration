@@ -118,6 +118,7 @@ def chooseSubFolder(frame, cutoffList, pathList):
             return pathList[i]
     return pathList[-1]
 
+
 def getRawPath(mission, roll, frame):
     '''Generate the full path to a specified RAW file.'''
     
@@ -380,10 +381,14 @@ class FrameInfo(object):
     
     def isGoodAlignmentCandidate(self):
         '''Return True if the image is a good candidate for automatic alignment'''
+        rawPath = self.rawPath
+        if offline_config.USE_RAW == False:
+            rawPath = True
+        
         return (self.isExposureGood() and
                 self.isTiltGood() and
                 self.isCloudPercentageGood() and
-                self.rawPath) # TODO: Don't require this when dealing with jpegs
+                rawPath)
 
     def isCenterWithinDist(self, lon, lat, dist):
         '''Returns True if the frame center is within a distance of lon/lat.
