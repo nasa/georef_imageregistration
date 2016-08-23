@@ -21,6 +21,7 @@ from django.conf import settings
 django.setup()
 
 from geocamTiePoint import quadTree
+from geocamUtil import imageInfo
 
 
 '''
@@ -49,7 +50,9 @@ def getImageRegistrationInfo(frameDbData, georefDb):
     registrationResult = georefDb.getRegistrationResult(frameDbData.mission, frameDbData.roll, frameDbData.frame)
     
     # This function generates/fetches the source image if it does not exist
-    registrationResult['sourceImagePath'] = source_database.getSourceImage(frameDbData)
+    sourceImagePath, exifSourcePath = source_database.getSourceImage(frameDbData)
+    registrationResult['sourceImagePath'] = sourceImagePath
+    registrationResult['exifSourcePath'] = exifSourcePath
     
     return registrationResult
 
@@ -134,6 +137,7 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
             print "_mission is %s " % _mission
             print "_roll is %s" % _roll
             print "_frame is %s " % _frame
+            
             try:
                 print str((_mission, _roll, _frame))
                 frameDbData = source_database.FrameInfo()
@@ -141,6 +145,7 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
                 frameDbData.mission = _mission
                 frameDbData.roll = _roll
                 frameDbData.frame = _frame
+                
         		# Get the registration info for this image, then apply manual pixel coord correction.
                 imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
                 if imageRegistrationInfo['isManual']:
@@ -149,7 +154,9 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
                 outputPrefix = getOutputPrefix(_mission, _roll, _frame)
                 centerPointSource = imageRegistrationInfo['centerPointSource']
                 #TODO: append the center point source to the outputPrefix.
-                registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], outputPrefix,
+                registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], 
+                                                       imageRegistrationInfo['exifSourcePath'],
+                                                       outputPrefix,
                                                        imageRegistrationInfo['imageInliers'],
                                                        imageRegistrationInfo['gdcInliers'],
                                                        imageRegistrationInfo['registrationMpp'],

@@ -6,6 +6,10 @@ import traceback
 import json
 import numpy
 import shutil
+import piexif
+import datetime
+
+from PIL import Image, ExifTags
 
 import IrgGeoFunctions
 import offline_config
@@ -14,9 +18,9 @@ basepath    = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
 sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
-
 from geocamTiePoint import transform
 from django.conf import settings
+
 
 # These codes are used to define the confidence in the detected image registration
 CONFIDENCE_NONE = 0
@@ -161,8 +165,8 @@ def getFitError(imageInliers, gdcInliers):
     return math.sqrt(rms)
 
 
-def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-                       minUncertaintyMeters, centerPointSource, 
+def recordOutputImages(sourceImagePath, exifSourcePath, outputPrefix, imageInliers, 
+                       gdcInliers, minUncertaintyMeters, centerPointSource, 
                        isManualRegistration=False, overwrite=True):
     '''Generates all the output image files that we create for each successfully processed image.'''
     
@@ -185,6 +189,7 @@ def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
         (noWarpOutputPath, warpOutputPath) = \
             generateGeotiff(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
                                             posError, fitError, isManualRegistration,
+                                            exifSourcePath,
                                             writeHeaders=True, overwrite=True)
     except Exception as e:
         print str(e)
@@ -193,6 +198,7 @@ def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
         (noWarpOutputPath, warpOutputPath) = \
             generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
                                                 posError, fitError, isManualRegistration,
+                                                exifSourcePath,
                                                 writeHeaders=False, overwrite=True)
     except Exception as e:
         print str(e)
@@ -202,7 +208,6 @@ def recordOutputImages(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
     os.remove(rawUncertaintyPath)
     if os.path.exists(rawXmlPath):
         os.remove(rawXmlPath)
-
 
 
 def getPixelToGdcTransform(imagePath, pixelToProjectedTransform=None):
@@ -564,7 +569,7 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     transformName = trans.getJsonDict()['type']
     
     tempPath = outputPath + '-temp.tif'
-
+    
     # Generate a temporary image containing the grid of fake GCPs
     cmd = ('gdal_translate -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2" -a_srs "'
            + OUTPUT_PROJECTION +'" '+ imagePath +' '+ tempPath)
@@ -615,8 +620,33 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
 
     return transformName
 
+
+def updateExif(exifSourcePath, geotiffFilePath):
+    # get acquisition time
+    creationArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/creation-args.txt'
+    extrasArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/extras-args.txt'
+    
+    outputFileName = geotiffFilePath
+    # rename the geotiff input to "temp" so that we can generate a new geotiffFilePath geotiff file with updated exif.
+    #     tempFileName = geotiffFilePath + ".temp"  
+    filename, file_extension = os.path.splitext(outputFileName)
+    tempFileName = os.path.dirname(outputFileName) + "/temp-%s%s" % (datetime.datetime.utcnow().strftime('%Y-%m-%d_%H:%M:%S%Z'), file_extension)
+    
+    os.rename(outputFileName, tempFileName)
+    print "Exif Source Path: %s"
+    
+    try: 
+        exifCmd = 'exiftool -tagsFromFile %s -@ %s -@ %s -ModifyDate="`date \'+%%Y:%%m:%%d %%H:%%M:%%S\'`" -EXIF:Software="%s" -o %s %s' \
+                    % (exifSourcePath, creationArgsFile, extrasArgsFile, "GeoRef", outputFileName, tempFileName)      
+        os.system(exifCmd)
+        os.remove(tempFileName)  
+    except Exception as e: 
+        os.rename(tempFileName, outputFileName)
+        print "Failed to copy over the exif information. %s" % e
+        
+
 def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, fitError,
-                    isManualRegistration, writeHeaders, overwrite=False):
+                    isManualRegistration, exifSourcePath, writeHeaders, overwrite=False):
     '''Converts a plain tiff to a geotiff using the provided geo information.'''
 
     # Check inputs
@@ -631,11 +661,16 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, f
     else:
         registrationMethodString = 'Automated'
 
+    exifData = piexif.load(exifSourcePath)
+    acquisitionTime = exifData['Exif'][piexif.ExifIFD.DateTimeOriginal]
+    
     # TODO: Do the manual registrations not use Landsat?
-    extraMetadataString = ('-mo POSITION_UNCERTAINTY_RMS_METERS=' +str(posError)
-                         + ' -mo FIT_ERROR_RMS_PIXELS='+str(fitError)
-                         + ' -mo REGISTRATION_METHOD='+registrationMethodString
-                         + ' -mo REGISTRATION_REFERENCE=Landsat')
+    extraMetadataString = ('-mo POSITION_UNCERTAINTY_RMS_METERS=' + str(posError)
+                         + ' -mo FIT_ERROR_RMS_PIXELS=' + str(fitError)
+                         + ' -mo REGISTRATION_METHOD=' + registrationMethodString
+                         + ' -mo REGISTRATION_REFERENCE=Landsat'
+                         + ' -mo ACQUISITION_DATETIME="' + acquisitionTime + '"'
+                         + ' -mo ACQUISITION_DATETIME_TIMEZONE="GMT"')
 
     # First generate a geotiff that adds metadata but does not change the image data.
     # TODO - This may not be useful unless we can duplicate how they processed their RAW data!
@@ -660,13 +695,15 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, f
                 break
             
         # Generate the file using gdal_translate
-        #print cmd
+        print cmd
         os.system(cmd)
         if not os.path.exists(noWarpOutputPath):
             raise Exception('Failed to create geotiff file: ' + noWarpOutputPath)
         
         if writeHeaders:
             generateStandaloneMetadataFile(noWarpOutputPath)
+            
+        updateExif(exifSourcePath, noWarpOutputPath)
 
     # Now generate a warped geotiff.
     if (not os.path.exists(warpOutputPath)) or overwrite:
@@ -686,8 +723,11 @@ def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, f
         if writeHeaders:
             generateStandaloneMetadataFile(warpOutputPath)
         
-
+        updateExif(exifSourcePath, warpOutputPath)
+        
+    
     return (noWarpOutputPath, warpOutputPath)
+
 
 def generateStandaloneMetadataFile(inputImagePath):
     '''Convert geotiff metadata into a nicely formatted external text file.'''
@@ -705,7 +745,6 @@ def generateStandaloneMetadataFile(inputImagePath):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     textOutput, err = p.communicate()
 
-    
     lines = textOutput.split('\n')
 
     imageStartLine = metadataStartLine = coordSystemStartLine = gcpStartLine = imageSizeLine = 0
@@ -724,10 +763,8 @@ def generateStandaloneMetadataFile(inputImagePath):
         
         index += 1
 
-    headerText = 'File Type: GeoTiff\n'+imageSizeLine + '\n'
-    
-    ipHeader = '''[Tie-Points Used For Georeferencing]
-{Point format is: (pixel column, pixel row) -> (longitude, latitude, 0)}\n'''
+    headerText = 'File Type: GeoTiff\n' + imageSizeLine + '\n'
+    ipHeader = '''[Tie-Points Used For Georeferencing] {Point format is: (pixel column, pixel row) -> (longitude, latitude, 0)}\n'''
     
     if gcpStartLine > 0:
         ipText = ipHeader + '\n'.join(lines[gcpStartLine:metadataStartLine])

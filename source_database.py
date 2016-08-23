@@ -3,6 +3,8 @@ import subprocess
 import sqlite3
 import urllib2
 import offline_config
+import piexif
+import datetime
 
 import registration_common
 import register_image
@@ -11,6 +13,8 @@ import traceback
 import dbLogger
 
 import georefDbWrapper as georefDb
+
+
 
 '''
 This file contains tools for reading the source database and
@@ -40,7 +44,7 @@ def convertRawFileToTiff(rawPath, outputPath):
     os.system(cmd)
     if not os.path.exists(outputPath):
         raise Exception('Failed to convert input file ' + rawPath)
-
+ 
 
 def getSourceImage(frameInfo, overwrite=False):
     '''Obtains the source image we will work on, ready to use.
@@ -50,19 +54,23 @@ def getSourceImage(frameInfo, overwrite=False):
     if os.path.exists(outputPath) and (not overwrite):
         return outputPath
     
+    exifSourcePath = None
     if offline_config.USE_RAW:
         #print 'Converting RAW to TIF...'
         convertRawFileToTiff(frameInfo.rawPath, outputPath)
+        exifSourcePath = frameInfo.rawPath
+    
     else: # JPEG input
-        #print 'Grabbing JPEG'
+#         print 'Grabbing JPEG'
         # Download to a temporary file
-        tempPath = outputPath + '-temp.jpeg'
-        grabJpegFile(frameInfo.mission, frameInfo.roll, frameInfo.frame, tempPath)
+        datetimeString = datetime.datetime.utcnow().strftime('%Y-%m-%d_%H:%M:%S%Z')
+        tempFileName =  os.path.dirname(outputPath) + "/%s-%s-%s-%s-temp.jpeg" % (frameInfo.mission, frameInfo.roll, frameInfo.frame, datetimeString)
+        grabJpegFile(frameInfo.mission, frameInfo.roll, frameInfo.frame, tempFileName)
         # Crop off the label if it exists
-        registration_common.cropImageLabel(tempPath, outputPath)
-        os.remove(tempPath) # Clean up temp file
-        
-    return outputPath
+        registration_common.cropImageLabel(tempFileName, outputPath)
+        exifSourcePath = tempFileName
+    
+    return [outputPath, exifSourcePath]
 
 
 def getRawImageSize(rawPath):
