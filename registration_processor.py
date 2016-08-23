@@ -97,7 +97,7 @@ def matchLocally(mission, roll, frame, cursor, georefDb, sourceImagePath):
         print 'Trying local match with frame: ' + str(otherFrame.frame)
         
         # Get path to other frame image
-        otherImagePath = source_database.getSourceImage(otherFrame)
+        otherImagePath, exifSourcePath = source_database.getSourceImage(otherFrame)
         otherTransform = ourResult[0] # This is still in the google projected format
         
         #print 'otherTransform = ' + str(otherTransform.matrix)
@@ -175,7 +175,7 @@ def processFrame(options, frameDbData, searchNearby=False):
         georefDb = georefDbWrapper.DatabaseLogger()
         # Increase the error slightly for chained image transforms
         LOCAL_TRANSFORM_ERROR_ADJUST = 1.10
-        sourceImagePath = source_database.getSourceImage(frameDbData, overwrite=True)
+        sourceImagePath, exifSourcePath = source_database.getSourceImage(frameDbData, overwrite=True)
         try:
             # If requested, get nearby previously matched frames to compare to.
             if searchNearby:

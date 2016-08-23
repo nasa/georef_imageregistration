@@ -1,0 +1,9 @@
+-EXIF:CreateDate
+-MakerNotes:Timezone
+-MakerNotes:DateDisplayFormat
+-MakerNotes:PowerUpTime
+-EXIF:SubSecTime
+-EXIF:SubSecTimeOriginal
+-EXIF:SubSecTimeDigitized
+-EXIF:DateTimeOriginal
+-MakerNotes:DaylightSavings
