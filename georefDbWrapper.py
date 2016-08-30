@@ -420,7 +420,7 @@ class DatabaseLogger(object):
                 # Convert and compare the timestamps
                 acqDate     = data['acquisitionDate']
                 acqTime     = data['acquisitionTime']
-                timeString  = acqDate.replace(':','-') +' '+ acqTime
+                timeString  = acqDate.replace('/','-') +' '+ acqTime
                 timeRow     = datetime.datetime.strptime(timeString, TIME_FORMAT)
                 diffSeconds = abs((timeIn - timeRow).total_seconds())
                 print row[1] + ' --> ' + str(diffSeconds / 60.0)
