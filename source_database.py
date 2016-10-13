@@ -13,7 +13,7 @@ import traceback
 import dbLogger
 
 import georefDbWrapper as georefDb
-
+import IrgGeoFunctions
 
 
 '''
@@ -372,7 +372,14 @@ class FrameInfo(object):
         # Get the image size
         if self.rawPath:
             (self.width, self.height) = getRawImageSize(self.rawPath)
-    
+   
+        if self.width == 0:
+            [outputPath, exifSourcePath] = getSourceImage(self)
+            self.width, self.height = IrgGeoFunctions.getImageSize(outputPath)
+	    print "width is %d" % self.width
+	    print "height is %d" % self.height
+
+ 
     def getMySqlDateTime(self):
         '''Format a datetime string for MySQL'''
         s = self.date.replace('.','-') + ' ' + self.time
@@ -387,12 +394,25 @@ class FrameInfo(object):
     def isCloudPercentageGood(self):
         return (self.cloudPercentage < offline_config.MAX_CLOUD_PERCENTAGE)
     
+    def isImageSizeGood(self):
+        return (self.width !=0) and (self.height !=0)
+    #    '''Return True if the image is a good candidate for automatic alignment'''
+    #    return (self.isExposureGood() and
+    #            self.isTiltGood() and
+    #            self.isCloudPercentageGood() and
+    #            self.rawPath)
+
     def isGoodAlignmentCandidate(self):
         '''Return True if the image is a good candidate for automatic alignment'''
-        return (self.isExposureGood() and
+        print "exposure good? %s" % self.isExposureGood()
+        print "tilt good? %s" % self.isTiltGood() 
+        print "cloud percentage good? %s" % self.isCloudPercentageGood()
+        print "is width and height good? %s" % self.isImageSizeGood() 
+        
+	return (self.isExposureGood() and
                 self.isTiltGood() and
                 self.isCloudPercentageGood() and
-                self.rawPath)
+		self.isImageSizeGood()) #and
 
     def isCenterWithinDist(self, lon, lat, dist):
         '''Returns True if the frame center is within a distance of lon/lat.
