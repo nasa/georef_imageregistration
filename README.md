@@ -1,1 +1,2 @@
+README
 # georef_imageregistration
