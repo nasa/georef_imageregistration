@@ -26,6 +26,10 @@ basepath    = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
 sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
+import django
+from django.conf import settings
+django.setup()
+
 from geocamTiePoint import transform
 
 """
@@ -78,10 +82,10 @@ class DatabaseLogger(object):
     def _connect(self):
         '''Connect to the SQL server'''
         
-        self._dbConnection = MySQLdb.connect(host  =offline_config.GEOREF_DB_HOST,
-                                             user  =offline_config.GEOREF_DB_USER,
-                                             passwd=offline_config.GEOREF_DB_PASS,
-                                             db    =offline_config.GEOREF_DB_NAME)
+        self._dbConnection = MySQLdb.connect(host  =settings.GEOREF_DB_HOST,
+                                             user  =settings.GEOREF_DB_USER,
+                                             passwd=settings.GEOREF_DB_PASS,
+                                             db    =settings.GEOREF_DB_NAME)
         self._dbCursor     = self._dbConnection.cursor()
     
         #self._executeCommand("set session transaction isolation level READ COMMITTED")

@@ -502,7 +502,7 @@ def test():
 
     # Open the input database
     print 'Initializing database connection...'
-    db     = sqlite3.connect(offline_config.DB_PATH)
+    db     = sqlite3.connect(settings.DB_PATH)
     cursor = db.cursor()
 
     print 'Opening the output log database...'
