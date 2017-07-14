@@ -23,9 +23,6 @@ registration tools.
 # ==================================================
 # Input paths
 
-# Path to the input database
-DB_PATH = '/home/smcmich1/db.sqlt'
-
 # Path to the DCRAW tool used to convert from raw images to tiffs
 DCRAW_PATH = '/home/smcmich1/repo/dcraw/dcraw'
 
@@ -34,12 +31,6 @@ RAW_IMAGE_FOLDER = '/media/network/ImagesDrop/RawESC'
 
 # We can either process the RAW file or an already converted JPEG file
 USE_RAW = False
-
-
-GEOREF_DB_HOST="localhost"
-GEOREF_DB_USER="root"
-GEOREF_DB_PASS="vagrant"
-GEOREF_DB_NAME="georef"
 
 # ==================================================
 # Output paths

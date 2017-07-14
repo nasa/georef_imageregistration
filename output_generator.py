@@ -113,7 +113,7 @@ def setupOutputGenerator():
     This needs to be called before we can run "runOutputGenerator"
     """
     # TODO: Turn the input DB into a full wrapper.
-    sourceDb = sqlite3.connect(offline_config.DB_PATH)
+    sourceDb = sqlite3.connect(settings.DB_PATH)
     sourceDbCursor = sourceDb.cursor()
     georefDb = georefDbWrapper.DatabaseLogger()
     return [sourceDb, sourceDbCursor, georefDb]
