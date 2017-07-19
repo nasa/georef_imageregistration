@@ -32,6 +32,10 @@ import georefDbWrapper as georefDb
 import IrgGeoFunctions
 
 
+import django
+from django.conf import settings
+django.setup()
+
 '''
 This file contains tools for reading the source database and
 some of the input file formats.

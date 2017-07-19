@@ -33,6 +33,9 @@ import georefDbWrapper
 import source_database
 import offline_config
 
+import django
+from django.conf import settings
+django.setup()
 
 '''
 This tool monitors for files that we have a center point for
