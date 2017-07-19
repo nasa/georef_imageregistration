@@ -29,7 +29,7 @@ except:
     import os.path
     sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..'))
     import ee_authenticate
-#ee_authenticate.initialize()
+ee_authenticate.initialize()
 
 import sys
 import time
