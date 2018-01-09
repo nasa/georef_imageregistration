@@ -189,7 +189,6 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
             except Exception as e:
                 print e
                 print traceback.print_exc()
-#                 print 'Caught exception:'
                 successFrames.remove((_mission, _roll, _frame))
                 test = successFrames
 #                 continue

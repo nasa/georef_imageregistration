@@ -562,12 +562,13 @@ def cropImageLabel(jpegPath, outputPath):
                 raise Exception('Still failed!')
             print 'Retry successful!'
     else:
-        print 'Detected image label!'
-        parts = textOutput.split()
+        lines = textOutput.strip().split('\n') # Get the parts of the last line
+        parts = lines[-1].split()
         if len(parts) != 3:
             raise Exception('Error running detectImageTag, got response: ' + textOutput)
-        side = parts[1]
-        labelPos = parts[2]
+        side     = parts[1]
+        labelPos = int(parts[2])
+        print 'Detected image label: ' + side + ' at index ' + str(labelPos)
         # Trim the label off of the bottom of the image
         imageSize = IrgGeoFunctions.getImageSize(jpegPath)
         x = 0
@@ -642,7 +643,7 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     cmd = ('gdalwarp -co "COMPRESS=LZW" -co "tiled=yes"  -co "predictor=2"'
                + ' -dstalpha -overwrite -tps -multi -r cubic -t_srs "'
            + OUTPUT_PROJECTION +'" ' + tempPath +' '+ outputPath)
-    #print cmd
+    print cmd
     os.system(cmd)
 
     # Check output and cleanup
