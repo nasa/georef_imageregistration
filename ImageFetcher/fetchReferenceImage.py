@@ -347,7 +347,7 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
     # Download the image and return percent valid pixels and the resolution we used.
     # - Earth Engine sometimes fails so try a few times before giving up.
     
-    NUM_RETRIES = 3
+    NUM_RETRIES = 6
     SLEEP_TIME  = 10
     numTries = 0
     while True:
@@ -356,6 +356,7 @@ def fetchReferenceImage(longitude, latitude, metersPerPixel, date, outputPath):
                 miscUtilities.downloadEeImage(image, bounds, scale, outputPath, landsatVisParams)
                 return (percentValid, mppToUse)
             except Exception: # After the first failures, wait and try again.
+                print 'Caught exception downloading reference image, will wait and retry.'
                 time.sleep(SLEEP_TIME)
             numTries += 1
         else: # Last pass, don't catch the exception.

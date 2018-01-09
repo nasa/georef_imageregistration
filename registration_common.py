@@ -538,7 +538,6 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     return rmsError
 
 
-# TODO: Not all labels are the same size and location!
 def cropImageLabel(jpegPath, outputPath):
     '''Create a copy of a jpeg file with any label cropped off'''
     
@@ -548,12 +547,9 @@ def cropImageLabel(jpegPath, outputPath):
     print cmd
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     textOutput, err = p.communicate()
+   
     
-    # The label is always the same number of pixels
-    CROP_AMOUNT = 56
-    
-    # TODO: The label detection and removal method is not good enough to be used!
-    if True: #'NO_LABEL' in textOutput:
+    if 'NO_LABEL' in textOutput:
         # The file is fine, just copy it.
         print 'Copy ' + jpegPath +' --> '+ outputPath
         try:
@@ -566,13 +562,30 @@ def cropImageLabel(jpegPath, outputPath):
                 raise Exception('Still failed!')
             print 'Retry successful!'
     else:
-
         print 'Detected image label!'
+        parts = textOutput.split()
+        if len(parts) != 3:
+            raise Exception('Error running detectImageTag, got response: ' + textOutput)
+        side = parts[1]
+        labelPos = parts[2]
         # Trim the label off of the bottom of the image
-        imageSize    = IrgGeoFunctions.getImageSize(jpegPath)
-        imageSize[1] = imageSize[1] - CROP_AMOUNT
-        cmd = ('gdal_translate -of jpeg -srcwin 0 0 ' + str(imageSize[0]) +' '+ str(imageSize[1]) +' '+
-               jpegPath +' '+ outputPath)
+        imageSize = IrgGeoFunctions.getImageSize(jpegPath)
+        x = 0
+        y = 0
+        width  = imageSize[0]
+        height = imageSize[1]
+        if side == 'LEFT':
+            x = labelPos
+            width = width - labelPos
+        if side == 'RIGHT':
+            width = labelPos
+        if side == 'TOP':
+            y = labelPos
+            height = height - labelPos
+        if side == 'BOTTOM':
+            height = labelPos
+        cmd = ('gdal_translate -of jpeg -srcwin %d %d %d %d %s %s' 
+                % (x, y, width, height, jpegPath, outputPath))
         print cmd
         os.system(cmd)
 
