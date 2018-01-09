@@ -133,11 +133,10 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
         workDir = tempfile.mkdtemp()
     else: # In debug mode, create a more permanent work location.
         workDir = os.path.splitext(imagePath)[0]
+        print 'Using work directory: ' + workDir
     if not os.path.exists(workDir):
         os.mkdir(workDir)
     workPrefix = workDir + '/work'
-    
-    #print workDir
     
     if not refImagePath:
         # Fetch the reference image

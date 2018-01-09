@@ -70,10 +70,11 @@ def getSourceImage(frameInfo, overwrite=False):
     '''Obtains the source image we will work on, ready to use.
        Downloads it, converts it, or whatever else is needed.
        Has a fixed location where the image is written to.'''
+
     outputPath = registration_common.getWorkingPath(frameInfo.mission, frameInfo.roll, frameInfo.frame)
-    if os.path.exists(outputPath) and (not overwrite):
-        return outputPath
-    
+    #if os.path.exists(outputPath) and (not overwrite): # TODO: Need to handle the exif file too!
+    #    return outputPath
+
     exifSourcePath = None
     if offline_config.USE_RAW:
         #print 'Converting RAW to TIF...'
@@ -81,7 +82,7 @@ def getSourceImage(frameInfo, overwrite=False):
         exifSourcePath = frameInfo.rawPath
     
     else: # JPEG input
-#         print 'Grabbing JPEG'
+        print 'Grabbing JPEG'
         # Download to a temporary file
         datetimeString = datetime.datetime.utcnow().strftime('%Y-%m-%d_%H:%M:%S%Z')
         tempFileName =  os.path.dirname(outputPath) + "/%s-%s-%s-%s-temp.jpeg" % (frameInfo.mission, frameInfo.roll, frameInfo.frame, datetimeString)
@@ -92,6 +93,10 @@ def getSourceImage(frameInfo, overwrite=False):
     
     return [outputPath, exifSourcePath]
 
+def clearExif(exifPath):
+    '''Clear an exif file if it is a temporary jpeg file'''
+    if 'temp.jpeg' in exifPath:
+        os.remove(exifPath)
 
 def getRawImageSize(rawPath):
     '''Returns the size in pixels of the raw camera file'''

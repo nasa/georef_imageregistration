@@ -241,7 +241,7 @@ class DatabaseLogger(object):
                ' WHERE image.issMRF="'+mrf+'"')
         print cmd
         rows = self._executeCommand(cmd)
-        
+
         DEFAULT_MPP = 30 # Manual registration does not really have an MPP size...
         
         if len(rows) != 1:
@@ -557,7 +557,6 @@ class DatabaseLogger(object):
             cmd = ('SELECT over.extras, image.issMRF FROM geocamTiePoint_overlay over'+
                    ' INNER JOIN geocamTiePoint_imagedata image'+
                    ' ON over.imageData_id = image.id WHERE over.writtenToFile=0 and readyToExport=1')
-            
             print cmd
             rows = self._executeCommand(cmd)
             
@@ -574,9 +573,9 @@ class DatabaseLogger(object):
                     # Otherwise add to the list
                     output.append(self._MRFToMissionRollFrame(row[1]))
                     
-#                     # Stop whenever we get enough data
-#                     if len(output) >= limit:
-#                         return output
+                    # Stop whenever we get enough data
+                    if limit and (len(output) >= limit):
+                        return output
                 except: # For now just ignore failing entries
                     pass
         # End manually registered search
@@ -585,8 +584,9 @@ class DatabaseLogger(object):
             # If we need more images, now look at the automatic table.
             cmd = ('SELECT issMRF FROM geocamTiePoint_automatchresults WHERE matchConfidence="'
                    +confidence+'" AND writtenToFile=0')
-            if limit > 0:
-                cmd += ' LIMIT ' + str(limit)
+            if limit: # Only get the amount we need
+                cmd += ' LIMIT ' + str(limit-len(output))
+            print cmd
             rows = self._executeCommand(cmd)
             
             for row in rows:

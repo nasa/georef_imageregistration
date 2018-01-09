@@ -64,7 +64,7 @@ def getImageRegistrationInfo(frameDbData, georefDb):
         
     # Retrieve needed image info from our DB
     registrationResult = georefDb.getRegistrationResult(frameDbData.mission, frameDbData.roll, frameDbData.frame)
-    
+
     # This function generates/fetches the source image if it does not exist
     sourceImagePath, exifSourcePath = source_database.getSourceImage(frameDbData)
     registrationResult['sourceImagePath'] = sourceImagePath
@@ -77,7 +77,7 @@ def correctPixelCoordinates(registrationResult):
     '''Rescales the pixel coordinates based on the resolution they were collected at
        compared to the full image resolution.'''
        
-    # TODO: Account for the image side labels adjusting the image size!
+    # TODO: Account for the image labels adjusting the image size!
 
     sourceHeight = registrationResult['manualImageHeight']
     sourceWidth  = registrationResult['manualImageWidth' ]
@@ -120,6 +120,8 @@ def setupOutputGenerator():
 
 
 def createZipFile(successFrame, centerPointSource):
+    """
+    """
     mission, roll, frame = successFrame
     timenow = datetime.datetime.utcnow()
     # define the path where zipfile will be saved
@@ -141,33 +143,29 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
     while True:
         # Get images to process
         targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
-        print "found target frames"
-        # keep looking for autoregister data every minute.
-        while len(targetFrames) == 0:
-            time.sleep(60)    
-            targetFrames = findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
+        print "found " + str(len(targetFrames)) + " target frames"
         
         successFrames = list(targetFrames)
         
         for (_mission, _roll, _frame) in targetFrames:
-            print "_mission is %s " % _mission
-            print "_roll is %s" % _roll
-            print "_frame is %s " % _frame
-            
+            print 'MRF = ' + str((_mission, _roll, _frame))
             try:
-                print str((_mission, _roll, _frame))
+
                 frameDbData = source_database.FrameInfo()
                 #frameDbData.loadFromDb(sourceDbCursor, _mission, _roll, _frame)
                 frameDbData.mission = _mission
-                frameDbData.roll = _roll
-                frameDbData.frame = _frame
+                frameDbData.roll    = _roll
+                frameDbData.frame   = _frame
                 
         		# Get the registration info for this image, then apply manual pixel coord correction.
+
                 imageRegistrationInfo = getImageRegistrationInfo(frameDbData, georefDb)
+
                 if imageRegistrationInfo['isManual']:
                     imageRegistrationInfo = correctPixelCoordinates(imageRegistrationInfo)
     
                 outputPrefix = getOutputPrefix(_mission, _roll, _frame)
+                print 'Recording images to output prefix: ' + outputPrefix
                 centerPointSource = imageRegistrationInfo['centerPointSource']
                 #TODO: append the center point source to the outputPrefix.
                 registration_common.recordOutputImages(imageRegistrationInfo['sourceImagePath'], 
@@ -184,16 +182,23 @@ def output_generator(mission, roll, frame, limit, autoOnly, manualOnly, sleepInt
                 
                 # Clean up the source image we generated
                 os.remove(imageRegistrationInfo['sourceImagePath'])
+                source_database.clearExif(imageRegistrationInfo['exifSourcePath'])
                 # Update the database to record that we wrote the image
                 georefDb.markAsWritten(_mission, _roll, _frame)
     
             except Exception as e:
                 print e
+                print traceback.print_exc()
 #                 print 'Caught exception:'
                 successFrames.remove((_mission, _roll, _frame))
                 test = successFrames
 #                 continue
-        time.sleep(sleepInterval)
+        if limit or frame: # If any limit was provided don't stay in a loop.
+            return
+        if targetFrames:
+            time.sleep(sleepInterval)
+        else:
+            time.sleep(60) # Long sleep if no frames found
             
             
 def main():

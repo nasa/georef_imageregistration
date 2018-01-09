@@ -117,6 +117,7 @@ def matchLocally(mission, roll, frame, cursor, georefDb, sourceImagePath):
         
         # Get path to other frame image
         otherImagePath, exifSourcePath = source_database.getSourceImage(otherFrame)
+        source_database.clearExif(exifSourcePath)
         otherTransform = ourResult[0] # This is still in the google projected format
         
         #print 'otherTransform = ' + str(otherTransform.matrix)
@@ -137,8 +138,10 @@ def matchLocally(mission, roll, frame, cursor, georefDb, sourceImagePath):
                                           refImagePath         =otherImagePath,
                                           referenceGeoTransform=otherTransform,
                                           refMetersPerPixelIn  =otherFrame.metersPerPixel,
-                                          debug=False, force=True, slowMethod=False)       
-        
+                                          debug=options.debug, force=True, slowMethod=False)       
+        if not options.debug:
+            os.remove(otherImagePath) # Clean up the image we matched against
+
         # Quit once we get a good match
         if confidence == registration_common.CONFIDENCE_HIGH:
             print 'High confidence match!'
@@ -186,7 +189,6 @@ def doNothing(options, frameInfo, searchNearby, georefDb):
     print 'DO NOTHING'
     return 0
 
-
 def processFrame(options, frameDbData, searchNearby=False):
     '''Process a single specified frame.
        Returns True if we attempted to perform image alignment and did not hit an exception.'''
@@ -195,6 +197,8 @@ def processFrame(options, frameDbData, searchNearby=False):
         # Increase the error slightly for chained image transforms
         LOCAL_TRANSFORM_ERROR_ADJUST = 1.10
         sourceImagePath, exifSourcePath = source_database.getSourceImage(frameDbData, overwrite=True)
+        if not options.debug:
+            source_database.clearExif(exifSourcePath)
         try:
             # If requested, get nearby previously matched frames to compare to.
             if searchNearby:
@@ -224,7 +228,7 @@ def processFrame(options, frameDbData, searchNearby=False):
             confidence   = registration_common.CONFIDENCE_NONE
             imageInliers = []
             gdcInliers   = []
-            matchedImageId = 'NA'
+            matchedImageId    = 'NA'
             refMetersPerPixel = 999
             imageToProjectedTransform = registration_common.getIdentityTransform()
             imageToGdcTransform       = registration_common.getIdentityTransform()
@@ -246,7 +250,8 @@ def processFrame(options, frameDbData, searchNearby=False):
                            matchedImageId, sourceDateTime, centerPointSource)
         # This tool just finds the interest points and computes the transform,
         # a different tool will actually write the output images.
-        os.remove(sourceImagePath) # Clean up the source image
+        if not options.debug:
+            os.remove(sourceImagePath) # Clean up the source image
         print ('Finished processing frame ' + frameDbData.getIdString()
                + ' with confidence ' + registration_common.CONFIDENCE_STRINGS[confidence])
         return confidence
@@ -504,6 +509,9 @@ def main(argsIn):
                           help="Specify a roll to process.  Requires mission.")
         parser.add_option("--frame",   dest="frame",   default=None,
                           help="Specify a frame to process. Requires roll.")
+
+        parser.add_option("--debug", dest="debug", action="store_true", default=False,
+                          help="Write debug images.")
 
         parser.add_option("--local-search", dest="localSearch", action="store_true", default=False,
                           help="Align images locally instead of to Landsat data.")

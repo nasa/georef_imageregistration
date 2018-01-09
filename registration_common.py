@@ -155,8 +155,9 @@ def getWorkingPath(mission, roll, frame):
     FRAME_DIGITS = 6
     zFrame   = frame.rjust(FRAME_DIGITS, '0')
     filename = mission.lower() + roll.lower() + zFrame + ext
- 
+
     subFolder = getWorkingDir(mission, roll, frame)
+
     return os.path.join(subFolder, filename)
 
 
@@ -331,7 +332,8 @@ def alignImages(testImagePath, refImagePath, workPrefix, force, debug=False, slo
         if slowMethod: cmd.append('y')
         else:          cmd.append('n')
 
-        #print cmd
+        if debug:
+            print cmd
         #os.system('build/registerGeocamImage '+ refImagePath+' '+testImagePath+' '+transformPath+' --debug')
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
         textOutput, err = p.communicate()
@@ -541,7 +543,7 @@ def cropImageLabel(jpegPath, outputPath):
     '''Create a copy of a jpeg file with any label cropped off'''
     
     # Check if there is a label using a simple command line tool
-    cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/computeImageRms'
+    cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/detectImageTag'
     cmd    = [cmdPath, jpegPath]
     print cmd
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
@@ -550,8 +552,8 @@ def cropImageLabel(jpegPath, outputPath):
     # The label is always the same number of pixels
     CROP_AMOUNT = 56
     
-    if 'NO_LABEL' in textOutput:
-        # TODO: Why does this sometimes fail?
+    # TODO: The label detection and removal method is not good enough to be used!
+    if True: #'NO_LABEL' in textOutput:
         # The file is fine, just copy it.
         print 'Copy ' + jpegPath +' --> '+ outputPath
         try:
@@ -564,6 +566,7 @@ def cropImageLabel(jpegPath, outputPath):
                 raise Exception('Still failed!')
             print 'Retry successful!'
     else:
+
         print 'Detected image label!'
         # Trim the label off of the bottom of the image
         imageSize    = IrgGeoFunctions.getImageSize(jpegPath)
