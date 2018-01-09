@@ -194,7 +194,7 @@ void affineInlierPrune(std::vector<cv::Point2f> &ptsA, std::vector<cv::Point2f> 
         maxErrorIndex = i;
       }
     }
-    printf("Computed max error %lf at index %d\n", maxError, maxErrorIndex);
+    printf("Computed max error %lf at index %lu\n", maxError, maxErrorIndex);
     std::cout << ptsB[maxErrorIndex] << std::endl;
     break; // TODO: Do something with this information!
   }
@@ -311,7 +311,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     std::cout << "Failed to find any features in an image!\n";
     return 0;
   }
-  printf("Detected %d and %d keypoints\n", keypointsA.size(), keypointsB.size());
+  printf("Detected %lu and %lu keypoints\n", keypointsA.size(), keypointsB.size());
 
   // TODO: Does not seem to make a difference...
   //if ( (detectorType == DETECTOR_TYPE_SIFT) || (detectorType == DETECTOR_TYPE_AKAZE))
@@ -342,7 +342,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
   std::vector<std::vector<cv::DMatch> > matches;
   const size_t N_BEST_MATCHES = 2;
   matcher->knnMatch(descriptorsA, descriptorsB, matches, N_BEST_MATCHES);
-  printf("Initial matching finds %d matches.\n", matches.size());
+  printf("Initial matching finds %lu matches.\n", matches.size());
   
   const float  SEPERATION_RATIO = 0.8; // Min seperation between top two matches
   std::vector<cv::DMatch> seperatedMatches;
@@ -359,7 +359,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
       seperatedMatches.push_back(matches[i][0]);
     }
   }
-  printf("After match seperation have %d out of %d points remaining\n",
+  printf("After match seperation have %lu out of %lu points remaining\n",
          seperatedMatches.size(), matches.size());
   const size_t MIN_LEGAL_MATCHES = 3;
   if (seperatedMatches.size() < MIN_LEGAL_MATCHES)
@@ -431,7 +431,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
     
     //good_matches.push_back( seperatedMatches[i]);
   }
-  printf("After additional filtering have %u out of %u points remaining\n",
+  printf("After additional filtering have %lu out of %lu points remaining\n",
          good_matches.size(), seperatedMatches.size());
   if (good_matches.size() < MIN_LEGAL_MATCHES)
     return 0;
@@ -504,7 +504,7 @@ int computeImageTransform(const cv::Mat &refImageIn, const cv::Mat &matchImageIn
       inlierMatches.push_back(good_matches[i]);
     }
   }
-  printf("Obtained %d inliers.\n", inlierIndices.size());
+  printf("Obtained %lu inliers.\n", inlierIndices.size());
 
   for(size_t i = 0; i < inlierIndices.size(); i++ )
   {
