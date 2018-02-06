@@ -53,7 +53,8 @@ def findReadyImages(mission, roll, frame, limit, autoOnly, manualOnly, georefDb)
     if frame:
         return [(mission, roll, frame)]
 
-    imageList = georefDb.getImagesReadyForOutput(limit=limit, autoOnly=autoOnly,
+    # Don't bother with less than high confidence images unless they are specifically requested
+    imageList = georefDb.getImagesReadyForOutput(limit=limit, autoOnly=autoOnly, confidence='HIGH',
                                                  manualOnly=manualOnly)
 
     return imageList

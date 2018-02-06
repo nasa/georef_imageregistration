@@ -139,6 +139,7 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
     workPrefix = workDir + '/work'
     
     if not refImagePath:
+        refImageProvided = False
         # Fetch the reference image
         refImagePath    = os.path.join(workDir, 'ref_image.tif')
         refImageLogPath = os.path.join(workDir, 'ref_image_info.tif')
@@ -159,6 +160,7 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
             percentValid      = float(lines[0])
             refMetersPerPixel = float(lines[1])
     else: # The user provided a reference image
+        refImageProvided = True
         refMetersPerPixel = refMetersPerPixelIn # In this case the user must provide an accurate value!
 
         if not os.path.exists(refImagePath):
@@ -194,6 +196,12 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
     for pix in refInliers:
         gdcCoordinate = refImageToGdcTransform.forward(pix)
         gdcInliers.append(gdcCoordinate)
+
+    # If we don't clean up these files the disk will fill up!
+    # - TODO: A sustainable logging format?
+    if not refImageProvided:
+        os.system('rm -rf ' + workDir)
+        #os.remove(refImagePath)
 
     return (imageToProjectedTransform, imageToGdcTransform,
             confidence, imageInliers, gdcInliers, refMetersPerPixel)

@@ -321,8 +321,6 @@ class DatabaseLogger(object):
             latNew = rows[0][1]
             centerPointSource = rows[0][3]
             confidence = registration_common.confidenceFromString(rows[0][2])
-#             if confidence == registration_common.CONFIDENCE_HIGH:  #TODO: Ask Scott about these lines.
-#                 (lon, lat) = (lonNew, latNew)
         else:
             print 'Did not find ' + mrf + ' in our DB'
         
