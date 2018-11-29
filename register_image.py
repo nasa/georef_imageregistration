@@ -24,6 +24,8 @@ import math
 import numpy
 import ImageFetcher.fetchReferenceImage
 import IrgStringFunctions, IrgGeoFunctions
+import shutil
+from registration_common import TemporaryDirectory
 
 basepath    = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
@@ -128,83 +130,78 @@ def register_image(imagePath, centerLon, centerLat, metersPerPixel, imageDate,
     if not (os.path.exists(imagePath)):
         raise Exception('Input image path does not exist!')
 
-    # Set up paths in a temporary directory
-    if not debug:
-        workDir = tempfile.mkdtemp()
-    else: # In debug mode, create a more permanent work location.
-        workDir = os.path.splitext(imagePath)[0]
-        print 'Using work directory: ' + workDir
-    if not os.path.exists(workDir):
-        os.mkdir(workDir)
-    workPrefix = workDir + '/work'
+    with TemporaryDirectory() as myWorkDir:
+
+        # Set up paths in a temporary directory
+        if not debug:
+            workDir = myWorkDir
+        else: # In debug mode, create a more permanent work location.
+            workDir = os.path.splitext(imagePath)[0]
+        if not os.path.exists(workDir):
+            os.mkdir(workDir)
+        workPrefix = workDir + '/work'
+        
+        #print workDir
+        
+        if not refImagePath:
+            # Fetch the reference image
+            refImagePath    = os.path.join(workDir, 'ref_image.tif')
+            refImageLogPath = os.path.join(workDir, 'ref_image_info.tif')
+            if not os.path.exists(refImagePath):
+                (percentValid, refMetersPerPixel) = ImageFetcher.fetchReferenceImage.fetchReferenceImage(
+                                                        centerLon, centerLat,
+                                                        metersPerPixel, imageDate, refImagePath)
+                # Log the metadata
+                handle = open(refImageLogPath, 'w')
+                handle.write(str(percentValid) + '\n' + str(refMetersPerPixel))
+                handle.close()
+            else:
+                # Load the reference image metadata that we logged earlier
+                handle   = open(refImageLogPath, 'r')
+                fileText = handle.read()
+                handle.close()
+                lines = fileText.split('\n')
+                percentValid      = float(lines[0])
+                refMetersPerPixel = float(lines[1])
+        else: # The user provided a reference image
+            refMetersPerPixel = refMetersPerPixelIn # In this case the user must provide an accurate value!
     
-    if not refImagePath:
-        refImageProvided = False
-        # Fetch the reference image
-        refImagePath    = os.path.join(workDir, 'ref_image.tif')
-        refImageLogPath = os.path.join(workDir, 'ref_image_info.tif')
-        if not os.path.exists(refImagePath):
-            (percentValid, refMetersPerPixel) = ImageFetcher.fetchReferenceImage.fetchReferenceImage(
-                                                    centerLon, centerLat,
-                                                    metersPerPixel, imageDate, refImagePath)
-            # Log the metadata
-            handle = open(refImageLogPath, 'w')
-            handle.write(str(percentValid) + '\n' + str(refMetersPerPixel))
-            handle.close()
-        else:
-            # Load the reference image metadata that we logged earlier
-            handle   = open(refImageLogPath, 'r')
-            fileText = handle.read()
-            handle.close()
-            lines = fileText.split('\n')
-            percentValid      = float(lines[0])
-            refMetersPerPixel = float(lines[1])
-    else: # The user provided a reference image
-        refImageProvided = True
-        refMetersPerPixel = refMetersPerPixelIn # In this case the user must provide an accurate value!
-
-        if not os.path.exists(refImagePath):
-            raise Exception('Provided reference image path does not exist!')
-
-    # TODO: Reduce the input image to the resolution of the reference image!
-    # The reference image may be lower resolution than the input image, in which case
-    #  we will need to perform image alignment at the lower reference resolution.
-    inputScaling = metersPerPixel / refMetersPerPixel
-
-    print 'metersPerPixel    = ' + str(metersPerPixel)
-    print 'refMetersPerPixel = ' + str(refMetersPerPixel)
-    print 'inputScaling      = ' + str(inputScaling)
-
-    # Try to align to the reference image
-    # - The transform is from image to refImage
-    (imageToRefImageTransform, confidence, imageInliers, refInliers) = \
-            registration_common.alignScaledImages(imagePath, refImagePath, inputScaling, workPrefix, force, debug, slowMethod)
-
-    # If we failed, just return dummy information with zero confidence.
-    if (confidence == registration_common.CONFIDENCE_NONE):
-        return (registration_common.getIdentityTransform(),
-                registration_common.getIdentityTransform(),
-                registration_common.CONFIDENCE_NONE, [], [], 0)
-
-    # Convert the transform into a pixel-->Projected coordinate transform
-    (imageToProjectedTransform, imageToGdcTransform, refImageToGdcTransform) = \
-            convertTransformToGeo(imageToRefImageTransform, imagePath, refImagePath, referenceGeoTransform)
-
-    # For each input image inlier, generate the world coordinate.
+            if not os.path.exists(refImagePath):
+                raise Exception('Provided reference image path does not exist!')
     
-    gdcInliers = []
-    for pix in refInliers:
-        gdcCoordinate = refImageToGdcTransform.forward(pix)
-        gdcInliers.append(gdcCoordinate)
-
-    # If we don't clean up these files the disk will fill up!
-    # - TODO: A sustainable logging format?
-    if not refImageProvided:
-        os.system('rm -rf ' + workDir)
-        #os.remove(refImagePath)
-
-    return (imageToProjectedTransform, imageToGdcTransform,
-            confidence, imageInliers, gdcInliers, refMetersPerPixel)
+        # TODO: Reduce the input image to the resolution of the reference image!
+        # The reference image may be lower resolution than the input image, in which case
+        #  we will need to perform image alignment at the lower reference resolution.
+        inputScaling = metersPerPixel / refMetersPerPixel
+    
+        print 'metersPerPixel    = ' + str(metersPerPixel)
+        print 'refMetersPerPixel = ' + str(refMetersPerPixel)
+        print 'inputScaling      = ' + str(inputScaling)
+    
+        # Try to align to the reference image
+        # - The transform is from image to refImage
+        (imageToRefImageTransform, confidence, imageInliers, refInliers) = \
+                registration_common.alignScaledImages(imagePath, refImagePath, inputScaling, workPrefix, force, debug, slowMethod)
+    
+        # If we failed, just return dummy information with zero confidence.
+        if (confidence == registration_common.CONFIDENCE_NONE):
+            return (registration_common.getIdentityTransform(),
+                    registration_common.getIdentityTransform(),
+                    registration_common.CONFIDENCE_NONE, [], [], 0)
+    
+        # Convert the transform into a pixel-->Projected coordinate transform
+        (imageToProjectedTransform, imageToGdcTransform, refImageToGdcTransform) = \
+                convertTransformToGeo(imageToRefImageTransform, imagePath, refImagePath, referenceGeoTransform)
+    
+        # For each input image inlier, generate the world coordinate.
+        
+        gdcInliers = []
+        for pix in refInliers:
+            gdcCoordinate = refImageToGdcTransform.forward(pix)
+            gdcInliers.append(gdcCoordinate)
+    
+        return (imageToProjectedTransform, imageToGdcTransform,
+                confidence, imageInliers, gdcInliers, refMetersPerPixel)
 
 
 def test():

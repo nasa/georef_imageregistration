@@ -74,7 +74,6 @@ def getSourceImage(frameInfo, overwrite=False):
     outputPath = registration_common.getWorkingPath(frameInfo.mission, frameInfo.roll, frameInfo.frame)
     #if os.path.exists(outputPath) and (not overwrite): # TODO: Need to handle the exif file too!
     #    return outputPath
-
     exifSourcePath = None
     if offline_config.USE_RAW:
         #print 'Converting RAW to TIF...'

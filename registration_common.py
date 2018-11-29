@@ -24,6 +24,7 @@ import numpy
 import shutil
 import piexif
 import datetime
+import tempfile
 
 from PIL import Image, ExifTags
 
@@ -843,5 +844,15 @@ def generateStandaloneMetadataFile(inputImagePath):
     print 'Finished writing header file.'
 
 
+
+class TemporaryDirectory(object):
+    """Context manager for tempfile.mkdtemp() so it's usable with "with" statement."""
+    def __enter__(self):
+        self.name = tempfile.mkdtemp()
+        return self.name
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if '/tmp' in self.name:
+            shutil.rmtree(self.name)
 
 

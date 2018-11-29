@@ -25,6 +25,14 @@ import xml.etree.cElementTree as ET
 import tempfile
 import zipfile
 import urllib2
+try:
+    from registration_common import TemporaryDirectory
+except:
+    import sys
+    import os.path
+    sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..'))
+    from registration_common import TemporaryDirectory
+
 
 def safe_get_info(ee_object, max_num_attempts=None):
     '''Keep trying to call getInfo() on an Earth Engine object until it succeeds.'''
@@ -147,124 +155,116 @@ def computeScale(metersPerDegree, metersPerPixel):
 def downloadEeImage(eeObject, bbox, scale, file_path, vis_params=None):
     '''Downloads an Earth Engine image object to the specified path'''
 
-    workDir = tempfile.mkdtemp()
+    with TemporaryDirectory() as workDir:
 
-    # For now we require a GDAL installation in order to save images
-    if not(which('gdalbuildvrt') and which('gdal_translate')):
-        print 'ERROR: Must have GDAL installed in order to save images!'
-        return False
-
-    # Get a list of all the band names in the object
-    band_names = []
-    if vis_params and ('bands' in vis_params): # Band names were specified
-        band_names = vis_params['bands']
-        if ',' in band_names: # If needed, convert from string to list
-            band_names = band_names.replace(' ', '').split(',')
-    else: # Grab the first three band names
-        if len(eeObject.getInfo()['bands']) > 3:
-            print 'Warning: Limiting recorded file to first three band names!'
-        for b in eeObject.getInfo()['bands']:
-            band_names.append(b['id'])
-            if len(band_names) == 3:
-                break
+        # For now we require a GDAL installation in order to save images
+        if not(which('gdalbuildvrt') and which('gdal_translate')):
+            print 'ERROR: Must have GDAL installed in order to save images!'
+            return False
+    
+        # Get a list of all the band names in the object
+        band_names = []
+        if vis_params and ('bands' in vis_params): # Band names were specified
+            band_names = vis_params['bands']
+            if ',' in band_names: # If needed, convert from string to list
+                band_names = band_names.replace(' ', '').split(',')
+        else: # Grab the first three band names
+            if len(eeObject.getInfo()['bands']) > 3:
+                print 'Warning: Limiting recorded file to first three band names!'
+            for b in eeObject.getInfo()['bands']:
+                band_names.append(b['id'])
+                if len(band_names) == 3:
+                    break
+                
+        if (len(band_names) != 3) and (len(band_names) != 1):
+            raise Exception('Only 1 and 3 channel output images supported!')
+        
+        # Handle selected visualization parameters
+        if vis_params and ('min' in vis_params) and ('max' in vis_params): # User specified scaling
+            download_object = eeObject.visualize(band_names, min=vis_params['min'], max=vis_params['max'])
+        elif vis_params and ('gain' in vis_params):
+            # Extract the floating point gain values
+            gain_text       = vis_params['gain'].replace(' ', '').split(',')
+            gain_vals       = [float(x) for x in gain_text]
+            download_object = eeObject.visualize(band_names, gain_vals)
+        else:
+            download_object = eeObject.visualize(band_names)
+        
+        # Handle input bounds as string or a rect object
+        if isinstance(bbox, basestring) or isinstance(bbox, list): 
+            eeRect = apply(ee.Geometry.Rectangle, bbox)
+        else:
+            eeRect = bbox
+        eeGeom = unComputeRectangle(eeRect).toGeoJSONString()
+        
+        # Retrieve a download URL from Earth Engine
+        dummy_name = 'EE_image'
+        url = download_object.getDownloadUrl({'name' : dummy_name, 'scale': scale,
+                                              'crs': 'EPSG:4326', 'region': eeGeom})
+        #crsTransform = [scale, 0, eeRect.]
+        #url = download_object.getDownloadUrl({'name' : dummy_name, 'crs_transform': crsTransform,
+        #                                    'crs': 'EPSG:4326', 'region': eeGeom})
+          
+        
+        # Generate a temporary path for the packed download file
+        temp_prefix = 'CMT_temp_download_' + dummy_name
+        zip_name    = temp_prefix + '.zip'
+        zip_path    = os.path.join(workDir, zip_name) 
+        
+        # Download the packed file
+        print 'Downloading image...'
+        data = urllib2.urlopen(url)
+        with open(zip_path, 'wb') as fp:
+            while True:
+                chunk = data.read(16 * 1024)
+                if not chunk:
+                    break
+                fp.write(chunk)
+        print 'Download complete!'
+        
+        # Each band get packed seperately in the zip file.
+        z = zipfile.ZipFile(zip_path, 'r')
+        
+        ## All the transforms should be the same so we only read the first one.
+        ## - The transform is the six numbers that make up the CRS matrix (pixel to lat/lon conversion)
+        #transform_file = z.open(dummy_name + '.' + band_names[0] + '.tfw', 'r')
+        #transform = [float(line) for line in transform_file]
+        
+        # Extract each of the band images into a temporary file
+        # - Eventually the download function is supposed to pack everything in to one file!  https://groups.google.com/forum/#!topic/google-earth-engine-developers/PlgCvJz2Zko
+        temp_band_files = []
+        band_files_string = ''
+        #print 'Extracting...'
+        if len(band_names) == 1:
+            color_names = ['vis-gray']
+        else:
+            color_names = ['vis-red', 'vis-green', 'vis-blue']
+        for b in color_names:
+            band_filename  = dummy_name + '.' + b + '.tif'
+            extracted_path = os.path.join(workDir, band_filename)
+            #print band_filename
+            #print extracted_path
+            z.extract(band_filename, workDir)
+            temp_band_files.append(extracted_path)
+            band_files_string += ' ' + extracted_path
             
-    if (len(band_names) != 3) and (len(band_names) != 1):
-        raise Exception('Only 1 and 3 channel output images supported!')
-    
-    # Handle selected visualization parameters
-    if vis_params and ('min' in vis_params) and ('max' in vis_params): # User specified scaling
-        download_object = eeObject.visualize(band_names, min=vis_params['min'], max=vis_params['max'])
-    elif vis_params and ('gain' in vis_params):
-        # Extract the floating point gain values
-        gain_text       = vis_params['gain'].replace(' ', '').split(',')
-        gain_vals       = [float(x) for x in gain_text]
-        download_object = eeObject.visualize(band_names, gain_vals)
-    else:
-        download_object = eeObject.visualize(band_names)
-    
-    # Handle input bounds as string or a rect object
-    if isinstance(bbox, basestring) or isinstance(bbox, list): 
-        eeRect = apply(ee.Geometry.Rectangle, bbox)
-    else:
-        eeRect = bbox
-    eeGeom = unComputeRectangle(eeRect).toGeoJSONString()
-    
-    # Retrieve a download URL from Earth Engine
-    dummy_name = 'EE_image'
-    url = download_object.getDownloadUrl({'name' : dummy_name, 'scale': scale,
-                                          'crs': 'EPSG:4326', 'region': eeGeom})
-    #crsTransform = [scale, 0, eeRect.]
-    #url = download_object.getDownloadUrl({'name' : dummy_name, 'crs_transform': crsTransform,
-    #                                    'crs': 'EPSG:4326', 'region': eeGeom})
-      
-    
-    # Generate a temporary path for the packed download file
-    temp_prefix = 'CMT_temp_download_' + dummy_name
-    zip_name    = temp_prefix + '.zip'
-    zip_path    = os.path.join(workDir, zip_name) 
-    
-    # Download the packed file
-    print 'Downloading image...'
-    data = urllib2.urlopen(url)
-    with open(zip_path, 'wb') as fp:
-        while True:
-            chunk = data.read(16 * 1024)
-            if not chunk:
-                break
-            fp.write(chunk)
-    print 'Download complete!'
-    
-    # Each band get packed seperately in the zip file.
-    z = zipfile.ZipFile(zip_path, 'r')
-    
-    ## All the transforms should be the same so we only read the first one.
-    ## - The transform is the six numbers that make up the CRS matrix (pixel to lat/lon conversion)
-    #transform_file = z.open(dummy_name + '.' + band_names[0] + '.tfw', 'r')
-    #transform = [float(line) for line in transform_file]
-    
-    # Extract each of the band images into a temporary file
-    # - Eventually the download function is supposed to pack everything in to one file!  https://groups.google.com/forum/#!topic/google-earth-engine-developers/PlgCvJz2Zko
-    temp_band_files = []
-    band_files_string = ''
-    #print 'Extracting...'
-    if len(band_names) == 1:
-        color_names = ['vis-gray']
-    else:
-        color_names = ['vis-red', 'vis-green', 'vis-blue']
-    for b in color_names:
-        band_filename  = dummy_name + '.' + b + '.tif'
-        extracted_path = os.path.join(workDir, band_filename)
-        #print band_filename
-        #print extracted_path
-        z.extract(band_filename, workDir)
-        temp_band_files.append(extracted_path)
-        band_files_string += ' ' + extracted_path
+        # Generate an intermediate vrt file
+        vrt_path = os.path.join(workDir, temp_prefix + '.vrt')
+        cmd = 'gdalbuildvrt -separate -resolution highest ' + vrt_path +' '+ band_files_string
+        #print cmd
+        os.system(cmd)
+        if not os.path.exists(vrt_path):
+            raise Exception('Failed to create VRT file!')
         
-    # Generate an intermediate vrt file
-    vrt_path = os.path.join(workDir, temp_prefix + '.vrt')
-    cmd = 'gdalbuildvrt -separate -resolution highest ' + vrt_path +' '+ band_files_string
-    #print cmd
-    os.system(cmd)
-    if not os.path.exists(vrt_path):
-        raise Exception('Failed to create VRT file!')
-    
-    # Convert to the output file
-    cmd = 'gdal_translate -ot byte '+ vrt_path + ' ' +file_path
-    #print cmd
-    os.system(cmd)
-    
-    ### Clean up vrt file
-    ##os.remove(vrt_path)
-    
-    # Check for output file
-    if not os.path.exists(file_path):
-        raise Exception('Failed to create output image file!')
+        # Convert to the output file
+        cmd = 'gdal_translate -ot byte '+ vrt_path + ' ' +file_path
+        #print cmd
+        os.system(cmd)
         
-    ### Clean up temporary files
-    ##for b in temp_band_files:
-    ##    os.remove(b)
-    ##os.remove(zip_path)
-    
-    print 'Finished saving ' + file_path
-    return True
+        # Check for output file
+        if not os.path.exists(file_path):
+            raise Exception('Failed to create output image file!')
+        
+        print 'Finished saving ' + file_path
+        return True
     
