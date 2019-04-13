@@ -26,7 +26,6 @@ import registration_common
 import register_image
 import traceback
 
-import dbLogger
 import source_database
 import offline_config
 import georefDbWrapper

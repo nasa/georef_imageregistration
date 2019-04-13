@@ -26,8 +26,6 @@ import registration_common
 import register_image
 import traceback
 
-import dbLogger
-
 import georefDbWrapper as georefDb
 import IrgGeoFunctions
 
@@ -288,6 +286,9 @@ def getSensorSize(cameraCode):
     return (0,0)
 
 
+
+
+
 class FrameInfo(object):
     '''Class that contains the metadata for one frame.'''
     
@@ -461,6 +462,11 @@ class FrameInfo(object):
         '''Return the id consistent with our internal conventions'''
         return self.mission+'-'+self.roll+'-'+self.frame
 
+
+
+#=======================================================================
+# Class for 
+
 def getMissionList(cursor):
     '''Returns a list of the supported missions'''
 
@@ -523,9 +529,6 @@ def test():
     print 'Initializing database connection...'
     db     = sqlite3.connect(settings.DB_PATH)
     cursor = db.cursor()
-
-    print 'Opening the output log database...'
-    dbLog = dbLogger.DatabaseLogger(offline_config.OUTPUT_DATABASE_PATH)
     
     #(mission, roll, frame) = ('ISS001', '347', '24')
     #(mission, roll, frame) = ('ISS026', 'E', '29592')
