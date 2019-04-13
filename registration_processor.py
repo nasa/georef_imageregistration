@@ -17,8 +17,6 @@
 
 import os, sys
 import optparse
-import sqlite3
-#from pysqlite2 import dbapi2 as sqlite3
 
 import registration_common
 import register_image
@@ -30,7 +28,7 @@ import multiprocessing
 
 import IrgGeoFunctions
 import georefDbWrapper
-import source_database
+import source_image_utils
 import offline_config
 
 import django
@@ -52,7 +50,7 @@ def computeFrameInfoMetersPerPixel(frameInfo):
 
 
 
-def findNearbyResults(targetFrameData, cursor, georefDb):
+def findNearbyResults(targetFrameData, sourceDb, georefDb):
     '''Looks for results we have that we may be able to match to.'''
 
     imageTime = targetFrameData.getMySqlDateTime()
@@ -73,8 +71,8 @@ def findNearbyResults(targetFrameData, cursor, georefDb):
     for k, v in ourResults.iteritems():
     
         # Fetch info for this frame from the input database
-        frameDbData = source_database.FrameInfo()
-        frameDbData.loadFromDb(cursor, targetFrameData.mission, targetFrameData.roll, k)
+        frameDbData = source_image_utils.FrameInfo()
+        frameDbData = sourceDb.loadFrame(targetFrameData.mission, targetFrameData.roll, k)
     
         # Estimate the meters per pixel value
         frameDbData = computeFrameInfoMetersPerPixel(frameDbData)
@@ -97,31 +95,31 @@ def findNearbyResults(targetFrameData, cursor, georefDb):
     return results
     
 
-def matchLocally(mission, roll, frame, cursor, georefDb, sourceImagePath):
+def matchLocally(mission, roll, frame, sourceDb, georefDb, sourceImagePath):
     '''Performs image alignment to an already aligned ISS image'''
 
     # Load new frame info
-    targetFrameData = source_database.FrameInfo()
-    targetFrameData.loadFromDb(cursor, mission, roll, frame)
+    targetFrameData = source_image_utils.FrameInfo()
+    targetFrameData = sourceDb.loadFrame(mission, roll, frame)
     targetFrameData = computeFrameInfoMetersPerPixel(targetFrameData)
 
     # Find candidate names to match to
-    possibleNearbyMatches = findNearbyResults(targetFrameData, cursor, georefDb)
-        
+    possibleNearbyMatches = findNearbyResults(targetFrameData, sourceDb, georefDb)
+
     if not possibleNearbyMatches:
         print 'Did not find any potential local matches!'
-    
+
     for (otherFrame, ourResult) in possibleNearbyMatches:
 
         print 'Trying local match with frame: ' + str(otherFrame.frame)
-        
+
         # Get path to other frame image
-        otherImagePath, exifSourcePath = source_database.getSourceImage(otherFrame)
-        source_database.clearExif(exifSourcePath)
+        otherImagePath, exifSourcePath = source_image_utils.getSourceImage(otherFrame)
+        source_image_utils.clearExif(exifSourcePath)
         otherTransform = ourResult[0] # This is still in the google projected format
-        
+
         #print 'otherTransform = ' + str(otherTransform.matrix)
-        
+
         print 'New image mpp = ' + str(targetFrameData.metersPerPixel)
         print 'Local match image mpp = ' + str(otherFrame.metersPerPixel)
         # If we could not estimate the MPP value of the new image, guess that it is the same as
@@ -196,22 +194,21 @@ def processFrame(options, frameDbData, searchNearby=False):
         georefDb = georefDbWrapper.DatabaseLogger()
         # Increase the error slightly for chained image transforms
         LOCAL_TRANSFORM_ERROR_ADJUST = 1.10
-        sourceImagePath, exifSourcePath = source_database.getSourceImage(frameDbData, overwrite=True)
+        sourceImagePath, exifSourcePath = source_image_utils.getSourceImage(frameDbData, overwrite=True)
         if not options.debug:
-            source_database.clearExif(exifSourcePath)
+            source_image_utils.clearExif(exifSourcePath)
         try:
             # If requested, get nearby previously matched frames to compare to.
             if searchNearby:
-                sourceDb = sqlite3.connect(settings.DB_PATH)
-                sourceDbCursor = sourceDb.cursor()
-                
+                sourceDb = input_db_wrapper.InputDbWrapper()
+
                 (imageToProjectedTransform, imageToGdcTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel, otherFrame) = \
-                    matchLocally(frameDbData.mission, frameDbData.roll, frameDbData.frame, sourceDbCursor, georefDb, sourceImagePath)
+                    matchLocally(frameDbData.mission, frameDbData.roll, frameDbData.frame, sourceDb, georefDb, sourceImagePath)
                 if otherFrame:
                     matchedImageId = otherFrame.getIdString()
                 else:
                     matchedImageId = 'None'
-                sourceDb.close()
+
             else: # Try to register the image to Landsat
                 print 'Attempting to register image...'
                 (imageToProjectedTransform, imageToGdcTransform, confidence, imageInliers, gdcInliers, refMetersPerPixel) = \
@@ -263,12 +260,11 @@ def processFrame(options, frameDbData, searchNearby=False):
         return 0
     
 
-def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
+def findReadyImages(options, sourceDb, georefDb, limit=1):
     '''Get the next image that is ready to process'''
 
     # Get a list of all images which might be ready to register (center point does not have to be available).
-    candidateImages = source_database.getCandidatesInMission(sourceDbCursor,
-                        options.mission, options.roll, options.frame, checkCoords=False)
+    candidateImages = sourceDb.getCandidatesInMission(options.mission, options.roll, options.frame, checkCoords=False)
     
     print 'Found ' + str(len(candidateImages)) +' matches.'
     
@@ -277,9 +273,9 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
     results = []
     for (mission, roll, frame, lon, lat) in candidateImages:
         # Load remaining information about the frame from the JSC source database
-        frameInfo = source_database.FrameInfo()
+        frameInfo = source_image_utils.FrameInfo()
         try:
-            frameInfo.loadFromDb(sourceDbCursor, mission, roll, frame)
+            frameInfo = sourceDb.loadFrame(mission, roll, frame)
             # make sure the image is a good alignment candidate (no clouds, good exposure, etc). If not, skip
             good = frameInfo.isGoodAlignmentCandidate()
         except: 
@@ -292,9 +288,9 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
         
         # At this point, frameInfo may contain centerLon and centerLat (the "AUTOWCENTER" source).
         
-        # Retrieve existing automatch results from our database        
+        # Retrieve existing automatch results from our database
         (autolon, autolat, confidence, autoMatchCenterSource) = georefDb.getAutomatchResults(mission, roll, frame)
-        # Get the current best center point that is available. 
+        # Get the current best center point that is available.
         (bestlon, bestlat, confidence, bestCenterSource) = georefDb.getBestCenterPoint(mission, roll, frame, frameInfo)    
  
         lon = None
@@ -328,12 +324,12 @@ def findReadyImages(options, sourceDbCursor, georefDb, limit=1):
 
 
 # TODO: Move this
-def print_stats(options, sourceDbCursor, georefDb):
+def print_stats(options, sourceDb, georefDb):
     
     if options.mission:
         missionList = [options.mission]
     else:
-        missionList = source_database.getMissionList(sourceDbCursor)
+        missionList = sourceDb.getMissionList()
 
     # Print a header line
     print 'MISSION\t-->\tTOTAL\tNONE\tLOW\tHIGH\tHIGH_FRACTION'
@@ -383,16 +379,14 @@ def registrationProcessor(options):
 
     print '---=== Registration Processor has started ===---'
 
-    # TODO: Turn the input DB into a full wrapper.
-    sourceDb = sqlite3.connect(settings.DB_PATH)
-    sourceDbCursor = sourceDb.cursor()
+    # Set up wrappers for the input and output databases.
+    sourceDb = input_db_wrapper.InputDbWrapper()
     georefDb = georefDbWrapper.DatabaseLogger()
     
     print 'Finished opening databases.'
 
     if options.printStats:
-        print_stats(options, sourceDbCursor, georefDb)
-        sourceDb.close()
+        print_stats(options, sourceDb, georefDb)
         return 0
 
     # TODO: Set up logging
@@ -424,7 +418,7 @@ def registrationProcessor(options):
                 for job in jobList:
                     print job[0]
                 
-                readyFrames = findReadyImages(options, sourceDbCursor, georefDb, jobLimit)
+                readyFrames = findReadyImages(options, sourceDb, georefDb, jobLimit)
     
                 if not readyFrames:
                     print 'Registration Processor found no more data!'
@@ -494,8 +488,6 @@ def registrationProcessor(options):
         pool.terminate()
         pool.join()
 
-
-    sourceDb.close()
     print '---=== Registration Processor has stopped ===---'
     
     
