@@ -35,10 +35,17 @@ RAW_IMAGE_FOLDER = '/media/network/ImagesDrop/RawESC'
 # We can either process the RAW file or an already converted JPEG file
 USE_RAW = False
 
-GEOREF_DB_HOST="localhost"
-GEOREF_DB_USER="root"
-GEOREF_DB_PASS="vagrant"
-GEOREF_DB_NAME="georef"
+GEOREF_DB_HOST = "localhost"
+GEOREF_DB_USER = "root"
+GEOREF_DB_PASS = "vagrant"
+GEOREF_DB_NAME = "georef"
+
+MS_DB_USER   = "georef"
+MS_DB_PASS   = "TODO"
+MS_DB_SERVER = "TODO"
+MS_DB_NAME   = "Photos"
+
+
 
 # ==================================================
 # Output paths
