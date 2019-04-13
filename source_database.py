@@ -157,15 +157,18 @@ def getRawPath(mission, roll, frame):
     # The file storage system is not consistent, so
     #  many missions need some special handling.
     
+    # TODO: Make this more automatic!
+    
     # Zero pad values as needed
     FRAME_DIGITS = 6
     zFrame = frame.rjust(FRAME_DIGITS, '0')
     
     # The default conventions
-    name      = mission.lower() + roll.lower() + zFrame
-    ext       = '.nef'
-    subFolder = mission # The mission name in caps
-    iFrame = int(frame)
+    name       = mission.lower() + roll.lower() + zFrame
+    ext        = '.nef'
+    subFolder  = mission # The mission name in caps
+    iFrame     = int(frame)
+    missionNum = int(mission[3:])
     
     if ( (mission == 'ISS006') or
          (mission == 'ISS011') or
@@ -227,21 +230,32 @@ def getRawPath(mission, roll, frame):
             ['ISS030', 'ISS030_Batch02', 'ISS030_Batch03', 'ISS030_Batch04'])
 
     if mission == 'ISS031':
-        ext  = '.nef'
         subFolder = chooseSubFolder(iFrame, [95961], ['ISS031', 'ISS031_Batch02'])
 
+    if missionNum > 31:
+        ext  = '.NEF' # Switched over at this point for all later missions
+
     if mission == 'ISS042':
-        ext  = '.NEF'
         subFolder = chooseSubFolder(iFrame,
             [170284, 280908], ['ISS042', 'ISS042_Batch02', 'ISS030_Batch03'])
 
     if mission == 'ISS043':
-        ext  = '.NEF'
         subFolder = chooseSubFolder(iFrame, [159293], ['ISS043', 'ISS043_Batch02'])
         
     if mission == 'ISS045':
-        ext  = '.NEF'
         subFolder = chooseSubFolder(iFrame, [152311], ['ISS045', 'ISS045_Batch02'])
+
+    if mission == 'ISS047':
+        subFolder = chooseSubFolder(iFrame, [6717], ['ISS047', 'ISS047_Batch02'])
+    
+    if mission == 'ISS053':
+        subFolder = chooseSubFolder(iFrame, [96155, 189901, 269778, 349194, 431000],
+                                            ['ISS053',         'ISS053_Batch02',
+                                             'ISS053_Batch03', 'ISS053_Batch04'
+                                             'ISS053_Batch05', 'ISS053_Batch06'])
+    
+    if mission == 'ISS056':
+        subFolder = chooseSubFolder(iFrame, [94331], ['ISS056', 'ISS056_Batch02'])
     
     subPath  = os.path.join(subFolder, name+ext)
     fullPath = os.path.join(offline_config.RAW_IMAGE_FOLDER, subPath)
@@ -449,17 +463,14 @@ class FrameInfo(object):
 
 def getMissionList(cursor):
     '''Returns a list of the supported missions'''
-    
-    # Currently missions need to be added manually!
-    missionList = ['ISS006', 'ISS015', 'ISS020', 'ISS025', 'ISS030', 'ISS036',
-                   'ISS041', 'ISS047', 'ISS011', 'ISS016', 'ISS021', 'ISS026',
-                   'ISS032', 'ISS037', 'ISS042', 'ISS044', 'ISS012', 'ISS017',
-                   'ISS022', 'ISS027', 'ISS033', 'ISS038', 'ISS045', 'ISS013',
-                   'ISS018', 'ISS023', 'ISS028', 'ISS034', 'ISS039', 'ISS014',
-                   'ISS019', 'ISS024', 'ISS029', 'ISS031', 'ISS035', 'ISS040',
-                   'ISS043', 'ISS04']
-    
-    return missionList
+
+    # Each subfolder is either like "ISS015" or "ISS042_Batch02",
+    # just ignore the extra batch folders to get the full list.
+    folder = offline_config.RAW_IMAGE_FOLDER
+    files = os.listdir(folder)
+    files = [f for f in files if '_' not in f]
+
+    return return files
 
 def getCandidatesInMission(cursor, mission=None, roll=None, frame=None, checkCoords=True):
     '''Fetch a list of likely alignment candidates for a mission.

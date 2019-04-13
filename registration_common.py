@@ -421,6 +421,8 @@ def logRegistrationResults(outputPath, pixelTransform, confidence,
     '''Log the registration results so they can be read back in later.
        Provides enough data so that the image can be '''
 
+    # TODO: Delete this function?  What was it for?
+    raise Exception('BROKEN FUNCTION!')
     
     # Generate a scaled version of the input image
     scaledImagePath = workPrefix + '-scaledInputImage.tif'
@@ -502,6 +504,7 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     if not os.path.exists(tempPath2):
         raise Exception('Failed to generate GCP distance image!')
 
+    # TODO: Improve this calculation!
 
     # For each pixel away from a GCP, the uncertainty increases by this
     #  fraction of the minimum uncertainty.
@@ -656,6 +659,8 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
 
 
 def updateExif(exifSourcePath, geotiffFilePath):
+    '''Copy EXIF info from the source file to the geotiff file'''
+
     # get acquisition time
     creationArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/creation-args.txt'
     extrasArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/extras-args.txt'
