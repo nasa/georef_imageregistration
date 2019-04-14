@@ -64,8 +64,6 @@ DB change requests:
         - Add a "writtenToFile" field.
         - By mirroring our existing registration table fields we can make searches easier using joins.
 
-- TODO: Images which are in our DB but not in the input DB file are not supported.
-
 - Add UNIQUE flag if not already done.
 
 - Disable GUI writing of gtiff files.  ---> Go ahead and start running the tools, ignoring this step!
@@ -74,9 +72,7 @@ DB change requests:
     - How should they be running?
 - Verify that offline tools are running.
 - Test out the GUI, make sure everything works properly.
-- More testing
 
-- Double check why our RMS fit error is so high.
 - Switch from prints to logging
 
 
@@ -113,22 +109,10 @@ Examples for demo:
     - Each tool can access just the info it needs.
 
 
-- Switch from SQLite to MYSQL
-    - Waiting on new DB to stabilize
-
-- Port functionality from command line tool to seperate command line async processes.
-
-- Expand/improve DB wrapper classes so all tools and GUI can use the wrapper.
-    - Started new MySQL wrapper
-
-
-
-
 - File describing the input data system?
 
 - Handle overwrite options better, including re-fetch
 
-- Tune the uncertainty constants
 
 - IP registration improvements:    
     - Small amounts of clouds cause all the match image IP to fall on them!

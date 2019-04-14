@@ -63,8 +63,7 @@ if __name__ == "__main__":
         cursor.execute('describe ' + table[0])
         result = cursor.fetchall()
         print result
-    
-    
+
     db.close()
     print 'done'
 

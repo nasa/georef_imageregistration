@@ -26,8 +26,6 @@ import piexif
 import datetime
 import tempfile
 
-from PIL import Image, ExifTags
-
 import IrgGeoFunctions
 import offline_config
 
@@ -59,6 +57,104 @@ OUTPUT_PROJECTION = '+proj=longlat +datum=WGS84'
 # TODO: Split up this file!
 
 # TODO: Make sure that information entered via the GUI gets handled properly!
+
+
+class TemporaryDirectory(object):
+    """Context manager for tempfile.mkdtemp() so it's usable with "with" statement."""
+    def __enter__(self):
+        self.name = tempfile.mkdtemp()
+        return self.name
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if '/tmp' in self.name:
+            shutil.rmtree(self.name)
+
+
+def safeMakeDir(folder):
+    '''Make sure a folder exists and ignore any errors.'''
+    try:
+        os.mkdir(folder)
+    except:
+        pass
+
+
+def cropImageLabel(jpegPath, outputPath):
+    '''Create a copy of a jpeg file with any label cropped off'''
+    
+    # Check if there is a label using a simple command line tool
+    cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/detectImageTag'
+    cmd    = [cmdPath, jpegPath]
+    print cmd
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    textOutput, err = p.communicate()
+   
+    
+    if 'NO_LABEL' in textOutput:
+        # The file is fine, just copy it.
+        print 'Copy ' + jpegPath +' --> '+ outputPath
+        try:
+            shutil.copy(jpegPath, outputPath)
+        except:
+            print 'Copy failed, try again!'
+#            shutil.copy(jpegPath, outputPath)
+            os.system('cp ' + jpegPath +' '+ outputPath)
+            if not os.path.exists(outputPath):
+                raise Exception('Still failed!')
+            print 'Retry successful!'
+    else:
+        lines = textOutput.strip().split('\n') # Get the parts of the last line
+        parts = lines[-1].split()
+        if len(parts) != 3:
+            raise Exception('Error running detectImageTag, got response: ' + textOutput)
+        side     = parts[1]
+        labelPos = int(parts[2])
+        print 'Detected image label: ' + side + ' at index ' + str(labelPos)
+        # Trim the label off of the bottom of the image
+        imageSize = IrgGeoFunctions.getImageSize(jpegPath)
+        x = 0
+        y = 0
+        width  = imageSize[0]
+        height = imageSize[1]
+        if side == 'LEFT':
+            x = labelPos
+            width = width - labelPos
+        if side == 'RIGHT':
+            width = labelPos
+        if side == 'TOP':
+            y = labelPos
+            height = height - labelPos
+        if side == 'BOTTOM':
+            height = labelPos
+        cmd = ('gdal_translate -of jpeg -srcwin %d %d %d %d %s %s' 
+                % (x, y, width, height, jpegPath, outputPath))
+        print cmd
+        os.system(cmd)
+
+def updateExif(exifSourcePath, geotiffFilePath):
+    '''Copy EXIF info from the source file to the geotiff file'''
+
+    # These two files contain a bunch of arguments that are read by exiftool
+    creationArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/creation-args.txt'
+    extrasArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/extras-args.txt'
+    
+    outputFileName = geotiffFilePath
+    # rename the geotiff input to "temp" so that we can generate a new geotiffFilePath geotiff file with updated exif.
+    #     tempFileName = geotiffFilePath + ".temp"  
+    filename, file_extension = os.path.splitext(outputFileName)
+    tempFileName = os.path.dirname(outputFileName) + "/temp-%s%s" % (datetime.datetime.utcnow().strftime('%Y-%m-%d_%H:%M:%S%Z'), file_extension)
+    
+    os.rename(outputFileName, tempFileName)
+    print "Exif Source Path: %s"
+    
+    try: 
+        exifCmd = 'exiftool -tagsFromFile %s -@ %s -@ %s -ModifyDate="`date \'+%%Y:%%m:%%d %%H:%%M:%%S\'`" -EXIF:Software="%s" -o %s %s' \
+                    % (exifSourcePath, creationArgsFile, extrasArgsFile, "GeoRef", outputFileName, tempFileName)      
+        os.system(exifCmd)
+        os.remove(tempFileName)  
+    except Exception as e: 
+        os.rename(tempFileName, outputFileName)
+        print "Failed to copy over the exif information. %s" % e
+
 
 def getIdentityTransform():
     '''Return an identity transform from the transform.py file'''
@@ -96,14 +192,6 @@ def estimateGroundResolution(focalLength, width, height, sensorWidth, sensorHeig
     return pixelSize
 
 
-def safeMakeDir(folder):
-    '''Make sure a folder exists and ignore any errors.'''
-    try:
-        os.mkdir(folder)
-    except:
-        pass
-
-
 def getWorkingDir(mission, roll, frame):
     # Break up frames so that there are 1000 per folder
     FRAMES_PER_FOLDER = 1000
@@ -131,6 +219,8 @@ def getWorkingDir(mission, roll, frame):
 
 
 def getZipFilePath(mission, roll, frame):
+    '''Get the full path for an output zip file'''
+
     # Store data in /mission/mission-roll-frame/file
     issIdFolder = mission + '-' + roll + '-' + frame
     safeMakeDir(offline_config.OUTPUT_ZIP_FOLDER)
@@ -181,51 +271,6 @@ def getFitError(imageInliers, gdcInliers):
         rms += errSq / numPoints
     
     return math.sqrt(rms)
-
-
-def recordOutputImages(sourceImagePath, exifSourcePath, outputPrefix, imageInliers, 
-                       gdcInliers, minUncertaintyMeters, centerPointSource, 
-                       isManualRegistration=False, overwrite=True):
-    '''Generates all the output image files that we create for each successfully processed image.'''
-    
-    # We generate two pairs of images, one containing the image data
-    #  and another with the same format but containing the uncertainty distances.
-    outputPrefix = outputPrefix + '-' + centerPointSource
-    uncertaintyOutputPrefix = outputPrefix + '-uncertainty'
-    rawUncertaintyPath      = outputPrefix + '-uncertainty_raw.tif'
-    
-    # Create the raw uncertainty image
-    (width, height) = IrgGeoFunctions.getImageSize(sourceImagePath)
-    posError = generateUncertaintyImage(width, height, imageInliers,
-                                        minUncertaintyMeters, rawUncertaintyPath)
-    
-    # Get a measure of the fit error
-    fitError = getFitError(imageInliers, gdcInliers)
-    
-    # Generate the two pairs of images in the same manner
-    try:
-        (noWarpOutputPath, warpOutputPath) = \
-            generateGeotiff(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
-                                            posError, fitError, isManualRegistration,
-                                            exifSourcePath,
-                                            writeHeaders=True, overwrite=True)
-    except Exception as e:
-        print str(e)
-    
-    try:
-        (noWarpOutputPath, warpOutputPath) = \
-            generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
-                                                posError, fitError, isManualRegistration,
-                                                exifSourcePath,
-                                                writeHeaders=False, overwrite=True)
-    except Exception as e:
-        print str(e)
-    
-    # Clean up the raw uncertainty image and any extraneous files
-    rawXmlPath = rawUncertaintyPath + '.aux.xml'
-    os.remove(rawUncertaintyPath)
-    if os.path.exists(rawXmlPath):
-        os.remove(rawXmlPath)
 
 
 def getPixelToGdcTransform(imagePath, pixelToProjectedTransform=None):
@@ -477,6 +522,50 @@ def convertGcps(inputGdcCoords, imageToProjectedTransform, width, height):
     return (imageCoords, gdcCoords)
 
 
+def recordOutputImages(sourceImagePath, exifSourcePath, outputPrefix, imageInliers, 
+                       gdcInliers, minUncertaintyMeters, centerPointSource, 
+                       isManualRegistration=False, overwrite=True):
+    '''Generates all the output image files that we create for each successfully processed image.'''
+    
+    # We generate two pairs of images, one containing the image data
+    #  and another with the same format but containing the uncertainty distances.
+    outputPrefix = outputPrefix + '-' + centerPointSource
+    uncertaintyOutputPrefix = outputPrefix + '-uncertainty'
+    rawUncertaintyPath      = outputPrefix + '-uncertainty_raw.tif'
+    
+    # Create the raw uncertainty image
+    (width, height) = IrgGeoFunctions.getImageSize(sourceImagePath)
+    posError = generateUncertaintyImage(width, height, imageInliers,
+                                        minUncertaintyMeters, rawUncertaintyPath)
+    
+    # Get a measure of the fit error
+    fitError = getFitError(imageInliers, gdcInliers)
+    
+    # Generate the two pairs of images in the same manner
+    try:
+        (noWarpOutputPath, warpOutputPath) = \
+            generateGeotiff(sourceImagePath, outputPrefix, imageInliers, gdcInliers,
+                                            posError, fitError, isManualRegistration,
+                                            exifSourcePath,
+                                            writeHeaders=True, overwrite=True)
+    except Exception as e:
+        print str(e)
+    
+    try:
+        (noWarpOutputPath, warpOutputPath) = \
+            generateGeotiff(rawUncertaintyPath, uncertaintyOutputPrefix, imageInliers, gdcInliers,
+                                                posError, fitError, isManualRegistration,
+                                                exifSourcePath,
+                                                writeHeaders=False, overwrite=True)
+    except Exception as e:
+        print str(e)
+    
+    # Clean up the raw uncertainty image and any extraneous files
+    rawXmlPath = rawUncertaintyPath + '.aux.xml'
+    os.remove(rawUncertaintyPath)
+    if os.path.exists(rawXmlPath):
+        os.remove(rawXmlPath)
+
 def generateUncertaintyImage(width, height, imageInliers, minUncertainty, outputPath):
     '''Given a list of GCPs in an image, generate a distance image containing the
        distance from each pixel to the nearest GCP location.
@@ -542,59 +631,6 @@ def generateUncertaintyImage(width, height, imageInliers, minUncertainty, output
     return rmsError
 
 
-def cropImageLabel(jpegPath, outputPath):
-    '''Create a copy of a jpeg file with any label cropped off'''
-    
-    # Check if there is a label using a simple command line tool
-    cmdPath = settings.PROJ_ROOT + '/apps/georef_imageregistration/build/detectImageTag'
-    cmd    = [cmdPath, jpegPath]
-    print cmd
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    textOutput, err = p.communicate()
-   
-    
-    if 'NO_LABEL' in textOutput:
-        # The file is fine, just copy it.
-        print 'Copy ' + jpegPath +' --> '+ outputPath
-        try:
-            shutil.copy(jpegPath, outputPath)
-        except:
-            print 'Copy failed, try again!'
-#            shutil.copy(jpegPath, outputPath)
-            os.system('cp ' + jpegPath +' '+ outputPath)
-            if not os.path.exists(outputPath):
-                raise Exception('Still failed!')
-            print 'Retry successful!'
-    else:
-        lines = textOutput.strip().split('\n') # Get the parts of the last line
-        parts = lines[-1].split()
-        if len(parts) != 3:
-            raise Exception('Error running detectImageTag, got response: ' + textOutput)
-        side     = parts[1]
-        labelPos = int(parts[2])
-        print 'Detected image label: ' + side + ' at index ' + str(labelPos)
-        # Trim the label off of the bottom of the image
-        imageSize = IrgGeoFunctions.getImageSize(jpegPath)
-        x = 0
-        y = 0
-        width  = imageSize[0]
-        height = imageSize[1]
-        if side == 'LEFT':
-            x = labelPos
-            width = width - labelPos
-        if side == 'RIGHT':
-            width = labelPos
-        if side == 'TOP':
-            y = labelPos
-            height = height - labelPos
-        if side == 'BOTTOM':
-            height = labelPos
-        cmd = ('gdal_translate -of jpeg -srcwin %d %d %d %d %s %s' 
-                % (x, y, width, height, jpegPath, outputPath))
-        print cmd
-        os.system(cmd)
-
-
 def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     '''Use some workarounds to get a higher quality gdalwarp output than is normally possible.'''
 
@@ -658,31 +694,6 @@ def qualityGdalwarp(imagePath, outputPath, imagePoints, gdcPoints):
     return transformName
 
 
-def updateExif(exifSourcePath, geotiffFilePath):
-    '''Copy EXIF info from the source file to the geotiff file'''
-
-    # get acquisition time
-    creationArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/creation-args.txt'
-    extrasArgsFile = settings.STATIC_ROOT + '/georef_imageregistration/extras-args.txt'
-    
-    outputFileName = geotiffFilePath
-    # rename the geotiff input to "temp" so that we can generate a new geotiffFilePath geotiff file with updated exif.
-    #     tempFileName = geotiffFilePath + ".temp"  
-    filename, file_extension = os.path.splitext(outputFileName)
-    tempFileName = os.path.dirname(outputFileName) + "/temp-%s%s" % (datetime.datetime.utcnow().strftime('%Y-%m-%d_%H:%M:%S%Z'), file_extension)
-    
-    os.rename(outputFileName, tempFileName)
-    print "Exif Source Path: %s"
-    
-    try: 
-        exifCmd = 'exiftool -tagsFromFile %s -@ %s -@ %s -ModifyDate="`date \'+%%Y:%%m:%%d %%H:%%M:%%S\'`" -EXIF:Software="%s" -o %s %s' \
-                    % (exifSourcePath, creationArgsFile, extrasArgsFile, "GeoRef", outputFileName, tempFileName)      
-        os.system(exifCmd)
-        os.remove(tempFileName)  
-    except Exception as e: 
-        os.rename(tempFileName, outputFileName)
-        print "Failed to copy over the exif information. %s" % e
-        
 
 def generateGeotiff(imagePath, outputPrefix, imagePoints, gdcPoints, posError, fitError,
                     isManualRegistration, exifSourcePath, writeHeaders, overwrite=False):
@@ -848,16 +859,5 @@ def generateStandaloneMetadataFile(inputImagePath):
     
     print 'Finished writing header file.'
 
-
-
-class TemporaryDirectory(object):
-    """Context manager for tempfile.mkdtemp() so it's usable with "with" statement."""
-    def __enter__(self):
-        self.name = tempfile.mkdtemp()
-        return self.name
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if '/tmp' in self.name:
-            shutil.rmtree(self.name)
 
 

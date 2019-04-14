@@ -16,25 +16,23 @@
 
 import os
 import sys
-import argparse
-import subprocess
-import traceback
-import tempfile
+
 import math
 import numpy
 import ImageFetcher.fetchReferenceImage
 import IrgStringFunctions, IrgGeoFunctions
-import shutil
-from registration_common import TemporaryDirectory
 
-basepath    = os.path.abspath(sys.path[0]) # Scott debug
+from registration_common import TemporaryDirectory
+import registration_common
+
+basepath = os.path.abspath(sys.path[0]) # Scott debug
 sys.path.insert(0, basepath + '/../geocamTiePoint')
 sys.path.insert(0, basepath + '/../geocamUtilWeb')
 
 from geocamTiePoint import transform
-from django.conf import settings
 
-import registration_common
+"""Contains the primary image registration function.
+"""
 
 #======================================================================================
 # Supporting functions

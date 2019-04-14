@@ -19,6 +19,7 @@ import subprocess
 import urllib2
 import offline_config
 import piexif
+from PIL import Image, ExifTags
 import datetime
 
 import registration_common
@@ -34,6 +35,30 @@ on the server.
 
 #=======================================================
 # Helper functions
+
+
+def getExifData(filename):
+    """Exif utility Functions
+       referenced: https://gist.github.com/erans/983821
+    """
+    pilImageObj = Image.open(filename)
+    exifData = {}
+    try: 
+        pilExif = pilImageObj._getexif()
+        for tag,value in pilExif.items():
+            decoded = ExifTags.TAGS.get(tag, tag)
+            if tag in ExifTags.TAGS:
+                if decoded == "GPSInfo":
+                    gpsData = {}
+                    for t in value:
+                        gpsDecoded = ExifTags.GPSTAGS.get(t, t)
+                        gpsData[gpsDecoded] = value[t]
+                    exifData[decoded] = gpsData
+                else: 
+                    exifData[ExifTags.TAGS[tag]] = value
+    except: 
+        pass
+    return exifData
 
 def getFrameString(mission, roll, frame):
     return (mission +', '+ roll +', '+ frame)
